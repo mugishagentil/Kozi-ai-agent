@@ -1,0 +1,34 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model documents {
+  id        Int     @id @default(autoincrement())
+  title     String? @db.VarChar(255)
+  content   String? @db.Text
+  embedding String? @db.LongText
+}
+
+model ChatSession {
+  id        Int           @id @default(autoincrement())
+  users_id  Int
+  role_type String        @default("employee") // "employee" or "employer"
+  title     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+}
+
+model ChatMessage {
+  id        Int         @id @default(autoincrement())
+  sessionId Int
+  session   ChatSession @relation(fields: [sessionId], references: [id])
+  role      String // "user", "assistant", "system"
+  content   String      @db.Text
+  createdAt DateTime    @default(now())
+}

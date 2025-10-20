@@ -9,10 +9,7 @@ uploads
 backend/logs/
 # Build outputs
 dist/
-*.js
-*.js.map
-*.d.ts
-*.d.ts.map
+# keep source files tracked; only ignore built assets in dist/
 
 # Environment variables
 .env

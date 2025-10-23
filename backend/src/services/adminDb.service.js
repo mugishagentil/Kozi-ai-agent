@@ -424,6 +424,3 @@ module.exports = {
   filterEntities,
   intelligentQuery
 };
-
-
-

@@ -369,7 +369,18 @@ async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res)
 async function newChat(req, res) {
   try {
     const { users_id, firstMessage } = req.body;
-    if (!users_id) return res.status(400).json({ error: 'users_id required' });
+    
+    // Extract API token from headers
+    const apiToken = req.headers.authorization?.replace('Bearer ', '') || 
+                     req.headers['x-api-token'];
+
+    if (!users_id) {
+      return res.status(400).json({ error: 'users_id required' });
+    }
+
+    if (!apiToken) {
+      return res.status(401).json({ error: 'API token required in headers' });
+    }
 
     const title = firstMessage?.trim() 
       ? await generateChatTitle(firstMessage) 
@@ -378,8 +389,6 @@ async function newChat(req, res) {
     const session = await prisma.ChatSession.create({ 
       data: { users_id, title, role_type: 'admin' } 
     });
-
-    // Let the AI generate its own greeting based on the system prompt
 
     res.json({ success: true, data: { session_id: session.id, title } });
   } catch (err) {
@@ -395,6 +404,10 @@ async function newChat(req, res) {
 async function chat(req, res) {
   try {
     const action = req.query.action;
+    
+    // Extract API token from headers
+    const apiToken = req.headers.authorization?.replace('Bearer ', '') || 
+                     req.headers['x-api-token'];
 
     // Load previous session
     if (action === 'loadPreviousSession') {
@@ -422,6 +435,10 @@ async function chat(req, res) {
     const { sessionId, message, isFirstUserMessage } = req.body;
     if (!sessionId || !message) {
       return res.status(400).json({ error: 'sessionId and message required' });
+    }
+
+    if (!apiToken) {
+      return res.status(401).json({ error: 'API token required in headers' });
     }
 
     const session = await prisma.ChatSession.findUnique({ 

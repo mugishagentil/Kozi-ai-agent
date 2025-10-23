@@ -1,23 +1,7 @@
 // src/composables/useKoziChat.js
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 
-const DEMO_USER_CACHE_KEY = 'kozi-demo-user'
 const LAST_ACTIVE_SESSION_KEY = 'kozi_last_active_session'
-
-function createFallbackUser(email) {
-  return {
-    users_id: 5791,
-    email,
-    first_name: 'tuyishime',
-    last_name: 'naome',
-    role: 'employee'
-  }
-}
-
-function persistUserToCache(user) {
-  localStorage.setItem(DEMO_USER_CACHE_KEY, JSON.stringify(user))
-  return user
-}
 
 // Save last active session to localStorage
 function saveLastActiveSession(sessionId) {
@@ -58,32 +42,47 @@ export function useKoziChat() {
   
   // 🆕 Detect user role (employer = roleId 2, employee = roleId 1)
   const userRole = ref('employee') // default
-  const roleId = localStorage.getItem('roleId')
   
-  // More robust role detection
-  if (roleId === '2') {
-    userRole.value = 'employer'
-  } else if (roleId === '1') {
-    userRole.value = 'employee'
-  } else {
-    // If roleId is not set or invalid, try to detect from URL
-    const currentPath = window.location.pathname
-    if (currentPath.includes('/employer/') || currentPath.includes('/jobprovider/')) {
-      userRole.value = 'employer'
-    } else {
-      userRole.value = 'employee'
+  // Get role from localStorage
+  const getRoleFromLocalStorage = () => {
+    const employeeRoleId = localStorage.getItem('employeeRoleId')
+    const employerRoleId = localStorage.getItem('employerRoleId')
+    const adminRoleId = localStorage.getItem('adminRoleId')
+    const selectedRoleId = localStorage.getItem('selectedRoleId')
+    
+    // Check selected role first
+    if (selectedRoleId === '2' || employerRoleId === '2') {
+      return 'employer'
+    } else if (selectedRoleId === '3' || adminRoleId === '3') {
+      return 'admin'
+    } else if (selectedRoleId === '1' || employeeRoleId === '1') {
+      return 'employee'
     }
+    
+    // Fallback to URL detection
+    const currentPath = window.location.pathname
+    if (currentPath.includes('/admin')) {
+      return 'admin'
+    } else if (currentPath.includes('/employer/') || currentPath.includes('/jobprovider/')) {
+      return 'employer'
+    }
+    
+    return 'employee'
   }
+  
+  userRole.value = getRoleFromLocalStorage()
   
   // Debug logging
   console.log('🔍 Role Detection Debug:', {
-    roleId: roleId,
     userRole: userRole.value,
-    currentPath: window.location.pathname,
-    localStorage_roleId: localStorage.getItem('roleId')
+    selectedRoleId: localStorage.getItem('selectedRoleId'),
+    employeeRoleId: localStorage.getItem('employeeRoleId'),
+    employerRoleId: localStorage.getItem('employerRoleId'),
+    adminRoleId: localStorage.getItem('adminRoleId'),
+    currentPath: window.location.pathname
   })
   
-  // Manual override for testing (you can call this in console)
+  // Manual override for testing
   window.forceRole = (role) => {
     userRole.value = role
     console.log('🔧 Manual role override:', role)
@@ -97,13 +96,10 @@ export function useKoziChat() {
     console.log('🔍 API Prefix Debug:', { 
       currentPath, 
       userRole: userRole.value, 
-      isAdmin,
-      adminRoleId: localStorage.getItem('adminRoleId'),
-      employeeRoleId: localStorage.getItem('employeeRoleId'),
-      employerRoleId: localStorage.getItem('employerRoleId')
+      isAdmin
     });
     
-    // Check if user is admin (will now check URL path first)
+    // Check if user is admin
     if (isAdmin) {
       console.log('🔍 Admin user detected, using admin API')
       return '/admin/chat'
@@ -117,11 +113,10 @@ export function useKoziChat() {
 
   // Function to update role based on current URL
   const updateRoleFromURL = () => {
-    const currentPath = window.location.pathname
-    const newRole = (currentPath.includes('/employer/') || currentPath.includes('/jobprovider/')) ? 'employer' : 'employee'
+    const newRole = getRoleFromLocalStorage()
     if (userRole.value !== newRole) {
       userRole.value = newRole
-      console.log('🔄 Role updated from URL:', { newRole, currentPath })
+      console.log('🔄 Role updated:', { newRole })
     }
   }
 
@@ -198,26 +193,46 @@ export function useKoziChat() {
     { deep: true },
   )
 
-
-  const initializeUser = async () => {
-    try {
-      loading.value = true
-      const user = await getUser()
-      currentUser.value = user
-      console.log('User initialized:', user)
-    } catch (e) {
-      console.error('Failed to initialize user:', e)
-      error.value = 'Failed to initialize. Please refresh the page.'
-      messages.value = [
-        {
-          sender: 'assistant',
-          text: 'Sorry, I had trouble connecting. Please refresh the page and try again.',
-        },
-      ]
-    } finally {
-      loading.value = false
+const initializeUser = async () => {
+  try {
+    loading.value = true
+    console.log('🔄 Initializing user...')
+    
+    const user = await getUserFromLocalStorage()
+    
+    if (!user) {
+      throw new Error('User not authenticated. Please log in.')
     }
+    
+    currentUser.value = user
+    console.log('✅ User initialized:', user)
+    error.value = null // Clear any previous errors
+    
+  } catch (e) {
+    console.error('❌ Failed to initialize user:', e)
+    error.value = e.message || 'Failed to initialize. Please log in again.'
+    
+    // Add debug information to help diagnose the issue
+    const debugInfo = {
+      hasUserEmail: !!localStorage.getItem('userEmail'),
+      hasEmployeeToken: !!localStorage.getItem('employeeToken'),
+      hasEmployerToken: !!localStorage.getItem('employerToken'),
+      hasAdminToken: !!localStorage.getItem('adminToken'),
+      allStorageKeys: Object.keys(localStorage)
+    }
+    
+    console.log('🔍 Authentication Debug Info:', debugInfo)
+    
+    messages.value = [
+      {
+        sender: 'assistant',
+        text: 'Sorry, you need to be logged in to use the chat. Please log in and try again.',
+      },
+    ]
+  } finally {
+    loading.value = false
   }
+}
 
   const addBotMessage = (text) => {
     messages.value.push({ sender: 'assistant', text: formatMessage(text) })
@@ -263,7 +278,6 @@ export function useKoziChat() {
       }
     }
 
-    // FIX: Use current timestamp for new entries
     const currentTimestamp = Date.now()
 
     const chatEntry = {
@@ -275,13 +289,12 @@ export function useKoziChat() {
         hour: '2-digit',
         minute: '2-digit',
       }),
-      timestamp: currentTimestamp, // Use current timestamp
+      timestamp: currentTimestamp,
       messageCount: messages.value.length,
       lastMessage: cleanLastMessage.substring(0, 100),
-      createdAt: new Date(currentTimestamp) // Add createdAt field
+      createdAt: new Date(currentTimestamp)
     }
 
-    // Remove existing entry and add new one at the beginning
     const filtered = history.value.filter((item) => item.sessionId !== currentSession.value)
     history.value = [chatEntry, ...filtered].slice(0, 50)
     
@@ -290,11 +303,11 @@ export function useKoziChat() {
 
   const startNewChat = async () => {
     if (!currentUser.value) {
-      console.warn('No user available for new chat — initializing a demo user')
+      console.warn('No user available for new chat — initializing user')
       try {
         await initializeUser()
       } catch (e) {
-        // fallthrough, initializeUser handles its own errors
+        return
       }
       if (!currentUser.value) return
     }
@@ -308,7 +321,7 @@ export function useKoziChat() {
     chatStarted.value = false
     error.value = null
     currentChatTitle.value = 'New Chat'
-    clearLastActiveSession() // 🆕 Clear tracking for new chat
+    clearLastActiveSession()
     loading.value = true
 
     try {
@@ -318,7 +331,7 @@ export function useKoziChat() {
       if (data?.data?.session_id) {
         currentSession.value = data.data.session_id
         chatStarted.value = true
-        saveLastActiveSession(data.data.session_id) // 🆕 Track this session
+        saveLastActiveSession(data.data.session_id)
       } else {
         throw new Error('Invalid session response')
       }
@@ -349,7 +362,7 @@ export function useKoziChat() {
         if (data?.data?.session_id) {
           currentSession.value = data.data.session_id
           chatStarted.value = true
-          saveLastActiveSession(data.data.session_id) // 🆕 Track this session
+          saveLastActiveSession(data.data.session_id)
         } else {
           throw new Error('Failed to start session')
         }
@@ -374,11 +387,11 @@ export function useKoziChat() {
       currentChatTitle.value = newTitle
     }
 
-    // Create empty placeholder for streaming response (shows only bot icon + typing dots)
+    // Create empty placeholder for streaming response
     const botMessageIndex = messages.value.length
     messages.value.push({ 
       sender: 'assistant', 
-      text: '', // Start with empty content
+      text: '',
       streaming: true 
     })
 
@@ -393,7 +406,6 @@ export function useKoziChat() {
         text, 
         isFirstUserMessage,
         (chunk) => {
-          // Only process content chunks, ignore status
           if (chunk) {
             streamingMessage.value += chunk
             messages.value[botMessageIndex].text = formatMessage(streamingMessage.value)
@@ -401,29 +413,24 @@ export function useKoziChat() {
           }
         },
         (jobs) => {
-          // Handle job data if provided
           if (jobs && Array.isArray(jobs)) {
             messages.value[botMessageIndex].jobs = jobs
           }
         },
         (candidates) => {
-          // Handle candidate data if provided
           if (candidates && Array.isArray(candidates)) {
             messages.value[botMessageIndex].candidates = candidates
           }
         },
         (title) => {
-          // Title update callback
           if (title) {
             currentChatTitle.value = title
             
-            // Update the current session title in history
             const sessionIndex = history.value.findIndex(
               h => h.sessionId === currentSession.value
             );
             if (sessionIndex !== -1) {
               history.value[sessionIndex].title = title;
-              // Update localStorage
               localStorage.setItem('kozi_chat_history', JSON.stringify(history.value));
             }
           }
@@ -431,13 +438,11 @@ export function useKoziChat() {
         getApiPrefix()
       )
 
-      // Mark streaming as complete
       messages.value[botMessageIndex].streaming = false
 
     } catch (e) {
       console.error('Failed to send message:', e)
       error.value = 'Failed to send message'
-      // Replace the empty streaming bubble with a friendly error card
       messages.value[botMessageIndex] = {
         sender: 'assistant',
         text: formatMessage(
@@ -490,12 +495,12 @@ export function useKoziChat() {
         currentSession.value = historyItem.sessionId
         currentChatTitle.value = historyItem.title
         chatStarted.value = true
-        saveLastActiveSession(historyItem.sessionId) // 🆕 Track this session
+        saveLastActiveSession(historyItem.sessionId)
       } else {
         currentSession.value = historyItem.sessionId
         currentChatTitle.value = historyItem.title
         chatStarted.value = true
-        saveLastActiveSession(historyItem.sessionId) // 🆕 Track this session
+        saveLastActiveSession(historyItem.sessionId)
         messages.value = []
       }
     } catch (e) {
@@ -503,7 +508,7 @@ export function useKoziChat() {
       currentSession.value = historyItem.sessionId
       currentChatTitle.value = historyItem.title
       chatStarted.value = true
-      saveLastActiveSession(historyItem.sessionId) // 🆕 Track this session
+      saveLastActiveSession(historyItem.sessionId)
       messages.value = []
     } finally {
       loading.value = false
@@ -546,7 +551,6 @@ export function useKoziChat() {
               : stripHtmlAndFormat(lastMessage.content)
           }
           
-          // FIX: Use proper timestamp from backend
           const sessionTimestamp = session.timestamp || 
                                   new Date(session.created_at).getTime() || 
                                   new Date(session.createdAt).getTime() ||
@@ -561,15 +565,13 @@ export function useKoziChat() {
               hour: '2-digit',
               minute: '2-digit',
             }),
-            timestamp: sessionTimestamp, // Use the proper timestamp
+            timestamp: sessionTimestamp,
             messageCount: session.messages ? session.messages.length : 0,
             lastMessage: cleanLastMessage.substring(0, 100),
-            // Add createdAt for consistency
             createdAt: new Date(sessionTimestamp)
           }
         })
         
-        // Sort backend history by timestamp descending (newest first)
         backendHistory.sort((a, b) => b.timestamp - a.timestamp)
         
         history.value = backendHistory
@@ -583,7 +585,6 @@ export function useKoziChat() {
     }
   }
 
-  // Delete a chat session by ID (backend + local)
   const deleteHistoryItem = async (sessionId) => {
     if (!sessionId) return
 
@@ -600,18 +601,16 @@ export function useKoziChat() {
       const result = await res.json()
       console.log("Deleted chat session:", result)
 
-      // ✅ Remove from local history (filter instead of recursion)
       history.value = history.value.filter(
         (item) => item.sessionId !== sessionId
       )
 
-      // Reset current session if it was the one deleted
       if (currentSession.value === sessionId) {
         currentSession.value = null
         messages.value = []
         currentChatTitle.value = "New Chat"
         chatStarted.value = false
-        clearLastActiveSession() // 🆕 Clear tracking
+        clearLastActiveSession()
       }
 
       return result
@@ -622,7 +621,6 @@ export function useKoziChat() {
   }
 
   const clearAllHistory = async () => {
-    // ✅ Get users_id from currentUser
     if (!currentUser.value || !currentUser.value.users_id) {
       console.error("❌ Cannot clear history: User not logged in")
       return
@@ -631,11 +629,9 @@ export function useKoziChat() {
     const users_id = currentUser.value.users_id
 
     try {
-      // Clear local history
       history.value = []
       localStorage.removeItem("kozi-chat-history")
 
-      // Call backend API to clear sessions
       const res = await fetch(`${API_BASE}${getApiPrefix()}/sessions/all`, {
         method: "DELETE",
         headers: {
@@ -653,12 +649,11 @@ export function useKoziChat() {
       const data = await res.json()
       console.log(`✅ Cleared ${data.deletedCount} sessions from server`)
 
-      // ✅ Reset current session state
       currentSession.value = null
       messages.value = []
       currentChatTitle.value = "New Chat"
       chatStarted.value = false
-      clearLastActiveSession() // 🆕 Clear tracking
+      clearLastActiveSession()
 
     } catch (err) {
       console.error("❌ Error clearing history:", err)
@@ -675,7 +670,6 @@ export function useKoziChat() {
     }
   }
 
-  // Debug function to check timestamp consistency
   const debugHistoryTimestamps = () => {
     console.log('=== HISTORY TIMESTAMP DEBUG ===')
     history.value.forEach((item, index) => {
@@ -716,7 +710,7 @@ export function useKoziChat() {
     deleteHistoryItem,
     clearAllHistory,
     toggleTheme,
-    debugHistoryTimestamps, // Export debug function
+    debugHistoryTimestamps,
   }
 }
 
@@ -737,32 +731,25 @@ function formatMessage(message = '') {
   if (!message) return ''
   let formatted = String(message).trim()
 
-  // Remove any orphan/mismatched **
   formatted = formatted.replace(/(^|\s)\*\*([^*]+)(\s|$)/g, '$1<strong>$2</strong>$3')
   formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>')
 
-  // Strip markdown headings / blockquotes
   formatted = formatted.replace(/^[#>]+\s*/gm, '')
 
-  // Numbered list items → custom styled divs
   formatted = formatted.replace(
     /^(\d+)\.\s+([^:]+:\s*.+)$/gm,
     '<div class="numbered-item large-font"><span class="number">$1.</span><span class="full-text"> $2</span></div>'
   )
 
-  // Bullet list items
   formatted = formatted.replace(/^\s*[-•]\s+(.+)$/gm, '<div class="bullet-item large-font">$1</div>')
 
-  // Section headers
   formatted = formatted.replace(/^(.+):$/gm, '<div class="section-header large-font">$1</div>')
 
-  // Paragraph spacing
   formatted = formatted.replace(/([^\n])\n\n([^\n])/g, '$1</p><p class="large-font">$2')
   formatted = formatted.replace(/(?<!<\/div>)\n(?!<div)/g, '<br>')
   formatted = formatted.replace(/^\s*<br>\s*<br>\s*/, '')
 
-  // Wrap in <p> if not already formatted
   if (!formatted.includes('<div') && !formatted.includes('<p>')) {
     formatted = `<p class="large-font">${formatted}</p>`
   }
@@ -770,30 +757,28 @@ function formatMessage(message = '') {
   return formatted
 }
 
-
 // ===== API integration with STREAMING =====
 const API_BASE = (import.meta?.env?.VITE_API_URL || process.env.VUE_APP_API_URL || 'http://localhost:5050/api').replace(/\/+$/, '')
 
 // Admin detection logic
 function isAdminUser() {
-  // Check current URL path first - only detect admin when actually on admin dashboard
   const currentPath = window.location.pathname;
   const isOnAdminDashboard = currentPath.startsWith('/admin');
   
   if (!isOnAdminDashboard) {
-    return false; // If not on admin dashboard, definitely not admin
+    return false;
   }
   
-  // If on admin dashboard, verify admin credentials
   const adminRoleId = localStorage.getItem('adminRoleId');
+  const selectedRoleId = localStorage.getItem('selectedRoleId');
   const userEmail = localStorage.getItem('userEmail') || '';
   
-  return adminRoleId === '3' || userEmail === 'admin@kozi.rw' || userEmail.includes('admin');
+  return adminRoleId === '3' || selectedRoleId === '3' || userEmail === 'admin@kozi.rw' || userEmail.includes('admin');
 }
 
-// Generic fetch with timeout (prevents infinite spinner if backend is down)
+// Generic fetch with timeout
 async function fetchWithTimeout(resource, options = {}) {
-  const { timeout = 10000 } = options // 10s default
+  const { timeout = 10000 } = options
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), timeout)
 
@@ -805,77 +790,155 @@ async function fetchWithTimeout(resource, options = {}) {
   }
 }
 
-async function getUser(email = process.env.VUE_APP_EMPLOYEE_EMAIL || 'test@example.com') {
+
+async function getUserFromLocalStorage() {
   try {
-    const API_TOKEN = process.env.VUE_APP_KOZI_API_TOKEN || 'your_kozi_api_token_here';
-
-    // Check local cache first
-    const cached = localStorage.getItem(DEMO_USER_CACHE_KEY);
-    if (cached) {
-      try {
-        const user = JSON.parse(cached);
-        if (user && user.users_id && user.email === email) {
-          return user;
-        } else {
-          localStorage.removeItem(DEMO_USER_CACHE_KEY);
-        }
-      } catch (e) {
-        localStorage.removeItem(DEMO_USER_CACHE_KEY);
-      }
+    // Get user data from localStorage
+    const userEmail = localStorage.getItem('userEmail')
+    const employeeToken = localStorage.getItem('employeeToken')
+    const employerToken = localStorage.getItem('employerToken')
+    const adminToken = localStorage.getItem('adminToken')
+    
+    // Try all possible token locations
+    const token = employeeToken || employerToken || adminToken
+    
+    console.log('🔍 LocalStorage user data:', {
+      userEmail,
+      hasEmployeeToken: !!employeeToken,
+      hasEmployerToken: !!employerToken,
+      hasAdminToken: !!adminToken,
+      hasAnyToken: !!token,
+      allKeys: Object.keys(localStorage)
+    })
+    
+    if (!userEmail) {
+      throw new Error('No user email found in localStorage. Please log in.')
     }
-
-    if (!API_TOKEN) {
-      console.warn('Missing VITE_KOZI_API_TOKEN. Using demo user profile instead.')
-      return persistUserToCache(createFallbackUser(email))
+    
+    if (!token) {
+      throw new Error('No authentication token found in localStorage. Please log in.')
     }
-
-    // Fetch user_id
+    
+    // Fetch user_id from API using the email
+    console.log('🔍 Fetching user ID for email:', userEmail)
     const resId = await fetch(
-      `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(email)}`,
+      `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`,
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${API_TOKEN}`,
+          Authorization: `Bearer ${token}`,
         },
       }
     );
-    if (!resId.ok) throw new Error("Failed to fetch user ID");
+    
+    if (!resId.ok) {
+      console.error('❌ User ID fetch failed:', resId.status, await resId.text())
+      throw new Error(`Failed to fetch user ID: ${resId.status}`)
+    }
+    
     const dataId = await resId.json();
+    console.log('📋 User ID response:', dataId)
+    
+    if (!dataId.users_id) {
+      throw new Error('No user ID returned from API')
+    }
 
-    // Fetch full profile to get real name
-    const resProfile = await fetch(
-      `https://apis.kozi.rw/provider/view_profile/${dataId.users_id}`,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${API_TOKEN}`,
-        },
-      }
-    );
-    if (!resProfile.ok) throw new Error("Failed to fetch user profile");
-    const profile = await resProfile.json();
-
-    // Build user object
+    // Build basic user object first
     const user = {
       users_id: dataId.users_id,
-      email,
-      first_name: profile.first_name || "Alice",
-      last_name: profile.last_name || "Admin",
-      role: "employee",
+      email: userEmail,
+      first_name: userEmail.split('@')[0] || 'User',
+      last_name: '',
+      token: token
     };
 
-    return persistUserToCache(user);
+    // Try to fetch profile data (but don't fail if this doesn't work)
+    try {
+      let profile = null;
+      
+      // Try multiple endpoints
+      const endpoints = [
+        `https://apis.kozi.rw/provider/view_profile/${dataId.users_id}`,
+        `https://apis.kozi.rw/employee/view_profile/${dataId.users_id}`,
+        `https://apis.kozi.rw/users/profile/${dataId.users_id}`
+      ];
+      
+      for (const endpoint of endpoints) {
+        try {
+          console.log('🔍 Attempting to fetch profile from:', endpoint)
+          const resProfile = await fetch(endpoint, {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          
+          if (resProfile.ok) {
+            profile = await resProfile.json();
+            console.log('✅ Profile fetched from:', endpoint, profile)
+            break;
+          }
+        } catch (e) {
+          console.warn('⚠️ Profile fetch failed for', endpoint, e.message)
+        }
+      }
+      
+      // Update user with profile data if available
+      if (profile) {
+        user.first_name = profile.first_name || profile.firstName || user.first_name;
+        user.last_name = profile.last_name || profile.lastName || user.last_name;
+      }
+      
+    } catch (profileError) {
+      console.warn('⚠️ Profile fetch failed, using basic user data:', profileError)
+      // Continue with basic user data - don't throw error
+    }
+
+    console.log('✅ Authenticated user:', user)
+    return user;
+    
   } catch (e) {
-    console.error("getUser error:", e);
-    return persistUserToCache(createFallbackUser(email));
+    console.error("❌ getUserFromLocalStorage error:", e);
+    throw e;
   }
+}
+
+// Helper function to get auth headers
+// FIXED: Update getAuthHeaders to check all token types
+function getAuthHeaders() {
+  // Check all possible token locations
+  const employeeToken = localStorage.getItem('employeeToken');
+  const employerToken = localStorage.getItem('employerToken'); 
+  const adminToken = localStorage.getItem('adminToken');
+  
+  const token = employeeToken || employerToken || adminToken;
+  
+  const headers = {
+    'Content-Type': 'application/json'
+  }
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    // Also add as x-api-token for compatibility
+    headers['x-api-token'] = token;
+  }
+  
+  console.log('🔐 Auth Headers Debug:', {
+    hasEmployeeToken: !!employeeToken,
+    hasEmployerToken: !!employerToken, 
+    hasAdminToken: !!adminToken,
+    hasAnyToken: !!token,
+    headers
+  });
+  
+  return headers;
 }
 
 async function startSession(users_id, firstMessage, rolePrefix = '/chat') {
   const url = `${API_BASE}${rolePrefix}/new`
   const res = await fetchWithTimeout(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ users_id, firstMessage }), 
     timeout: 10000
   })
@@ -887,18 +950,18 @@ async function startSession(users_id, firstMessage, rolePrefix = '/chat') {
   return await res.json()
 }
 
-// 🚀 NEW: Streaming message function
+// 🚀 Streaming message function
 async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk, onJobs, onCandidates, onTitle, rolePrefix = '/chat') {
   const url = `${API_BASE}${rolePrefix}`
   const res = await fetchWithTimeout(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ 
       sessionId, 
       message, 
       isFirstUserMessage
     }),
-    timeout: 60000 // Increased timeout for job searches
+    timeout: 60000
   })
 
   if (!res.ok) {
@@ -907,7 +970,6 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
     throw new Error(`Chat failed (${res.status}). ${errorText || ''}`)
   }
 
-  // If backend responded with JSON (non-SSE fallback), handle gracefully
   const contentType = res.headers.get('content-type') || ''
   if (contentType.includes('application/json')) {
     const json = await res.json()
@@ -916,7 +978,6 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
     } else if (json?.content) {
       onChunk(json.content, null)
     } else if (json?.messages) {
-      // Join messages content for display
       const joined = (json.messages || [])
         .map(m => (m.type === 'user' ? '' : m.content))
         .filter(Boolean)
@@ -926,9 +987,7 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
     return
   }
 
-  // Handle SSE streaming
   if (!res.body || !res.body.getReader) {
-    // Some environments (older browsers/proxies) may buffer the whole body
     const text = await res.text()
     if (text) {
       try {
@@ -940,6 +999,7 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
     }
     return
   }
+  
   const reader = res.body.getReader()
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
@@ -963,24 +1023,18 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
       try {
         const event = JSON.parse(payload)
         if (event.content) {
-          // Content chunk - only process actual content
           onChunk(event.content, null)
         } else if (event.jobs) {
-          // Job data
           onJobs(event.jobs)
         } else if (event.candidates) {
-          // Candidate data
           onCandidates(event.candidates)
         } else if (event.title) {
-          // Title update
           onTitle(event.title)
         } else if (event.done) {
-          // Streaming complete
           break
         } else if (event.error) {
           throw new Error(event.error)
         }
-        // Ignore status events (processing, generating)
       } catch (parseError) {
         console.warn('Failed to parse SSE event:', parseError)
       }
@@ -994,7 +1048,7 @@ async function getChatHistory(sessionId, rolePrefix = '/chat') {
   
   const res = await fetchWithTimeout(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ sessionId }),
     timeout: 10000
   })

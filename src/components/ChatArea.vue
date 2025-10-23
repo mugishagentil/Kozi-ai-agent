@@ -226,7 +226,7 @@ const suggestionCards = computed(() => {
       {
         icon: 'fas fa-briefcase',
         text: 'add a Job',
-        msg: 'How do I post a new job listing?'
+        msg: 'How can I post a new job?'
       },
       {
         icon: 'fas fa-search',

@@ -1,6 +1,6 @@
 const { Router } = require('express');
-const employeeChat = require('../services/chat/employee');
-const employerChat = require('../services/chat/employer');
+const employeeChat = require('../services/chat/employee.service');
+const employerChat = require('../services/chat/employer.service');
 
 const router = Router();
 

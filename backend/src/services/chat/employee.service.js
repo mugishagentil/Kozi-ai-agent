@@ -11,11 +11,15 @@ const { JobSeekerAgent } = require('../../utils/sqlAgent');
 
 const agentInstances = new Map();
 
-function getAgentForSession(sessionId) {
+function getAgentForSession(sessionId, apiToken = null) {
   if (!agentInstances.has(sessionId)) {
-    const agent = new JobSeekerAgent();
+    const agent = new JobSeekerAgent('gpt-4-turbo', apiToken);
     agent.setSessionId(sessionId);
     agentInstances.set(sessionId, agent);
+  } else if (apiToken) {
+    // Update token if it's provided and agent already exists
+    const agent = agentInstances.get(sessionId);
+    agent.setApiToken(apiToken);
   }
   return agentInstances.get(sessionId);
 }
@@ -27,9 +31,17 @@ function cleanupAgent(sessionId) {
 async function newChat(req, res) {
   try {
     const { users_id, firstMessage } = req.body;
+    
+    // Extract API token from headers
+    const apiToken = req.headers.authorization?.replace('Bearer ', '') || 
+                     req.headers['x-api-token'];
 
     if (!users_id) {
       return res.status(400).json({ error: 'User ID required' });
+    }
+
+    if (!apiToken) {
+      return res.status(401).json({ error: 'API token required in headers' });
     }
 
     const title = firstMessage?.trim()
@@ -37,10 +49,10 @@ async function newChat(req, res) {
       : 'New Chat';
 
     const session = await prisma.chatSession.create({
-      data: { users_id: parseInt(users_id), role_type: 'employer', title },
+      data: { users_id: parseInt(users_id), role_type: 'employee', title },
     });
 
-    const agent = new JobSeekerAgent();
+    const agent = new JobSeekerAgent('gpt-4-turbo', apiToken);
     agent.setSessionId(session.id);
     agentInstances.set(session.id, agent);
 
@@ -49,7 +61,7 @@ async function newChat(req, res) {
       data: { session_id: session.id, title },
     });
   } catch (err) {
-    console.error('POST /employer/chat/new error:', err);
+    console.error('POST /new-chat error:', err);
     res.status(500).json({ error: 'Failed to create chat' });
   }
 }
@@ -58,6 +70,10 @@ async function chat(req, res) {
   try {
     const { sessionId, message, isFirstUserMessage } = req.body;
     const action = req.query.action;
+    
+    // Extract API token from headers
+    const apiToken = req.headers.authorization?.replace('Bearer ', '') || 
+                     req.headers['x-api-token'];
 
     if (action === 'loadPreviousSession') {
       if (!sessionId) {
@@ -85,6 +101,10 @@ async function chat(req, res) {
 
     if (!sessionId || !message) {
       return res.status(400).json({ error: 'Session ID and message required' });
+    }
+
+    if (!apiToken) {
+      return res.status(401).json({ error: 'API token required in headers' });
     }
 
     const session = await prisma.chatSession.findUnique({
@@ -126,10 +146,47 @@ async function chat(req, res) {
 
     setupSSEHeaders(res);
 
-    const agent = getAgentForSession(Number(sessionId));
+    // Get or create agent with API token
+    const agent = getAgentForSession(Number(sessionId), apiToken);
     
     // Try job agent first
-    const agentResult = await agent.processMessage(latestMessage);
+    let agentResult;
+    try {
+      agentResult = await agent.processMessage(latestMessage);
+    } catch (error) {
+      // Handle authentication errors from the agent
+      if (error.code === 'AUTH_ERROR' || error.code === 'NO_TOKEN') {
+        res.write(`data: ${JSON.stringify({ 
+          content: 'Your session has expired. Please refresh the page and try again.',
+          error: true,
+          code: error.code
+        })}\n\n`);
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        res.end();
+        return;
+      }
+      throw error;
+    }
+
+    // Handle error responses from agent
+    if (agentResult && agentResult.type === 'error') {
+      await prisma.chatMessage.create({
+        data: { 
+          sessionId: Number(sessionId), 
+          role: 'assistant', 
+          content: agentResult.message 
+        },
+      });
+
+      res.write(`data: ${JSON.stringify({ 
+        content: agentResult.message,
+        error: true,
+        code: agentResult.code
+      })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+      return;
+    }
 
     // Fallback to general chat if agent returns null
     if (agentResult === null) {
@@ -137,65 +194,107 @@ async function chat(req, res) {
       return;
     }
 
-        // Handle candidate_profile response type
-        if (agentResult && agentResult.type === 'candidate_profile') {
-          // Save to database
-          await prisma.chatMessage.create({
-            data: { 
-              sessionId: Number(sessionId), 
-              role: 'assistant', 
-              content: agentResult.message 
-            },
-          });
+    // Handle candidate_profile response type
+    if (agentResult && agentResult.type === 'candidate_profile') {
+      // Save to database
+      await prisma.chatMessage.create({
+        data: { 
+          sessionId: Number(sessionId), 
+          role: 'assistant', 
+          content: agentResult.message 
+        },
+      });
 
-          // Stream the candidate profile
-          setupSSEHeaders(res);
+      // Stream the candidate profile
+      const responseContent = agentResult.message;
+      const chunks = responseContent.match(/[^\n]+\n?|\n/g) || [responseContent];
+      
+      for (const chunk of chunks) {
+        const words = chunk.split(' ');
+        for (let i = 0; i < words.length; i++) {
+          const word = words[i];
+          const toSend = i < words.length - 1 ? word + ' ' : word;
           
-          const responseContent = agentResult.message;
-          const chunks = responseContent.match(/[^\n]+\n?|\n/g) || [responseContent];
-          
-          for (const chunk of chunks) {
-            const words = chunk.split(' ');
-            for (let i = 0; i < words.length; i++) {
-              const word = words[i];
-              const toSend = i < words.length - 1 ? word + ' ' : word;
-              
-              try {
-                res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
-              } catch (writeError) {
-                if (writeError.code === 'EPIPE') {
-                  console.log('Client disconnected, stopping stream');
-                  return;
-                }
-                throw writeError;
-              }
-              
-              await new Promise((resolve) => setTimeout(resolve, 5));
+          try {
+            res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
+          } catch (writeError) {
+            if (writeError.code === 'EPIPE') {
+              console.log('Client disconnected, stopping stream');
+              return;
             }
+            throw writeError;
           }
-
-          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-          res.end();
-          return;
+          
+          await new Promise((resolve) => setTimeout(resolve, 5));
         }
+      }
 
-        // Handle agent response with streaming
-        if (agentResult && agentResult.message) {
-          const responseContent = agentResult.message;
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+      return;
+    }
 
-          // Save to database
-          await prisma.chatMessage.create({
-            data: { 
-              sessionId: Number(sessionId), 
-              role: 'assistant', 
-              content: responseContent 
-            },
-          });
+    // Handle clarification requests
+    if (agentResult && agentResult.type === 'clarification') {
+      await prisma.chatMessage.create({
+        data: { 
+          sessionId: Number(sessionId), 
+          role: 'assistant', 
+          content: agentResult.message 
+        },
+      });
+
+      const responseContent = agentResult.message;
+      const chunks = responseContent.match(/[^\n]+\n?|\n/g) || [responseContent];
+      
+      for (const chunk of chunks) {
+        const words = chunk.split(' ');
+        for (let i = 0; i < words.length; i++) {
+          const word = words[i];
+          const toSend = i < words.length - 1 ? word + ' ' : word;
+          
+          try {
+            res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
+          } catch (writeError) {
+            if (writeError.code === 'EPIPE') {
+              console.log('Client disconnected, stopping stream');
+              return;
+            }
+            throw writeError;
+          }
+          
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      }
+
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // Handle agent response with streaming
+    if (agentResult && agentResult.message) {
+      const responseContent = agentResult.message;
+
+      // Save to database
+      await prisma.chatMessage.create({
+        data: { 
+          sessionId: Number(sessionId), 
+          role: 'assistant', 
+          content: responseContent 
+        },
+      });
 
       // Send candidate data first if available (so cards appear quickly)
       if (agentResult.candidates && Array.isArray(agentResult.candidates)) {
         console.log('Sending candidate data:', agentResult.candidates.length);
         res.write(`data: ${JSON.stringify({ candidates: agentResult.candidates })}\n\n`);
+      }
+
+      // Send job data if available
+      if (agentResult.jobs && Array.isArray(agentResult.jobs)) {
+        console.log('Sending job data:', agentResult.jobs.length);
+        res.write(`data: ${JSON.stringify({ jobs: agentResult.jobs })}\n\n`);
       }
 
       // Stream response with faster typing effect
@@ -233,7 +332,7 @@ async function chat(req, res) {
     await handleOpenAIChat(session, latestMessage, isFirstUserMessage, res);
     
   } catch (err) {
-    console.error('POST /employer/chat error:', err);
+    console.error('POST /chat error:', err);
     
     if (!res.headersSent) {
       res.status(500).json({ error: 'Chat service error' });
@@ -277,8 +376,8 @@ async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res)
     }
   }
 
-  // KEY DIFFERENCE: Use employer prompt instead of employee
-  const systemPromptContent = PROMPT_TEMPLATES.employer(websiteContext, dbContext);
+  // Use employee prompt (different from employer)
+  const systemPromptContent = PROMPT_TEMPLATES.employee(websiteContext, dbContext);
 
   const previousMessages = await prisma.chatMessage.findMany({
     where: { sessionId: Number(sessionId) },
@@ -291,7 +390,6 @@ async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res)
     ...previousMessages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
     { role: 'user', content: latestMessage },
   ];
-
 
   const stream = await openai.chat.completions.create({
     model: process.env.OPENAI_CHAT_MODEL || 'gpt-4-turbo',
@@ -330,7 +428,7 @@ async function getUserChatSessions(req, res) {
     const sessions = await prisma.chatSession.findMany({
       where: { 
         users_id: Number(users_id),
-        role_type: 'employer'
+        role_type: 'employee'
       },
       include: { 
         messages: { 
@@ -351,7 +449,7 @@ async function getUserChatSessions(req, res) {
 
     res.json({ sessions: formatted });
   } catch (err) {
-    console.error('GET /employer/chat/sessions error:', err);
+    console.error('GET /chat/sessions error:', err);
     res.status(500).json({ error: 'Failed to fetch sessions' });
   }
 }
@@ -379,7 +477,7 @@ async function deleteChatSession(req, res) {
       message: 'Chat session deleted',
     });
   } catch (err) {
-    console.error('DELETE /employer/chat/session error:', err);
+    console.error('DELETE /chat/session error:', err);
     res.status(500).json({ error: 'Failed to delete session' });
   }
 }
@@ -412,7 +510,7 @@ async function deleteAllChatSessions(req, res) {
       message: 'All sessions deleted',
     });
   } catch (err) {
-    console.error('DELETE /employer/chat/sessions/all error:', err);
+    console.error('DELETE /chat/sessions/all error:', err);
     res.status(500).json({ error: 'Failed to delete sessions' });
   }
 }
@@ -424,4 +522,3 @@ module.exports = {
   deleteChatSession,
   deleteAllChatSessions,
 };
-

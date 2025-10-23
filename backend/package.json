@@ -50,7 +50,7 @@
     "typescript": "^5.9.2"
   },
   "engines": {
-    "node": ">=18 <22",
+    "node": ">=18 <=22.15",
     "npm": ">=8"
   },
   "overrides": {

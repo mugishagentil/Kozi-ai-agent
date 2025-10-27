@@ -936,6 +936,7 @@ function getAuthHeaders() {
 
 async function startSession(users_id, firstMessage, rolePrefix = '/chat') {
   const url = `${API_BASE}${rolePrefix}/new`
+  console.log('🚀 Starting chat session at:', url, 'with API_BASE:', API_BASE)
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: getAuthHeaders(),
@@ -953,6 +954,7 @@ async function startSession(users_id, firstMessage, rolePrefix = '/chat') {
 // 🚀 Streaming message function
 async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk, onJobs, onCandidates, onTitle, rolePrefix = '/chat') {
   const url = `${API_BASE}${rolePrefix}`
+  console.log('🚀 AI Chat calling:', url, 'with API_BASE:', API_BASE)
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: getAuthHeaders(),

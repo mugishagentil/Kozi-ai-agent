@@ -758,7 +758,7 @@ function formatMessage(message = '') {
 }
 
 // ===== API integration with STREAMING =====
-const API_BASE = (import.meta?.env?.VITE_API_URL || process.env.VUE_APP_API_URL || 'http://localhost:5050/api').replace(/\/+$/, '')
+const API_BASE = 'https://kozi-ai-agent-production.up.railway.app/api'.replace(/\/+$/, '')
 
 // Admin detection logic
 function isAdminUser() {

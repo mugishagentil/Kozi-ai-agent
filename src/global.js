@@ -1,2 +1,2 @@
 // Use environment variable for local development, fallback to remote API
-export const globalVariable = process.env.VUE_APP_API_URL || 'https://apis.kozi.rw';
+export const globalVariable = 'https://kozi-ai-agent-production.up.railway.app';

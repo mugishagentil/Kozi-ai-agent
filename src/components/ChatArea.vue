@@ -207,7 +207,7 @@ const suggestionCards = computed(() => {
       {
         icon: 'fas fa-envelope',
         text: 'Gmail Support',
-        msg: 'Show me recent emails and help me draft replies'
+        msg: 'summarize my recent emails'
       },
       {
         icon: 'fas fa-chart-line',

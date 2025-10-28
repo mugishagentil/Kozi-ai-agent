@@ -729,36 +729,86 @@ function stripHtmlAndFormat(text = '') {
 
 function formatMessage(message = '') {
   if (!message) return ''
+
   let formatted = String(message).trim()
 
-  formatted = formatted.replace(/(^|\s)\*\*([^*]+)(\s|$)/g, '$1<strong>$2</strong>$3')
-  formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-  formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+  // --- Markdown-like syntax fixes ---
 
-  formatted = formatted.replace(/^[#>]+\s*/gm, '')
+  // Handle markdown headings (###, ##, #) - FIRST process headings
+  formatted = formatted.replace(/^###\s*(.+)$/gm, '<h3 class="large-font mt-4 mb-2 font-semibold text-pink-600">$1</h3>')
+  formatted = formatted.replace(/^##\s*(.+)$/gm, '<h2 class="large-font mt-4 mb-2 font-semibold text-pink-600">$1</h2>')
+  formatted = formatted.replace(/^#\s*(.+)$/gm, '<h1 class="large-font mt-4 mb-2 font-semibold text-pink-600">$1</h1>')
 
+  // Bold and italic formatting
+  formatted = formatted
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+
+  // --- Section headers (lines that are complete sentences ending with colon) ---
   formatted = formatted.replace(
-    /^(\d+)\.\s+([^:]+:\s*.+)$/gm,
-    '<div class="numbered-item large-font"><span class="number">$1.</span><span class="full-text"> $2</span></div>'
+    /^([^:\n]+):$/gm,
+    '<div class="section-header large-font mt-4 mb-2 font-semibold text-gray-800">$1</div>'
   )
 
-  formatted = formatted.replace(/^\s*[-•]\s+(.+)$/gm, '<div class="bullet-item large-font">$1</div>')
+  // --- Numbered list (1. Item) ---
+  formatted = formatted.replace(
+    /^(\d+)\.\s+(.+)$/gm,
+    '<div class="numbered-item large-font mb-2"><span class="number text-pink-600 font-bold">$1.</span> <span class="full-text">$2</span></div>'
+  )
 
-  formatted = formatted.replace(/^(.+):$/gm, '<div class="section-header large-font">$1</div>')
+  // --- Bullet list (● Item or - Item) - FIXED to handle any number of items ---
+formatted = formatted.replace(
+  /^\s*[●•-]\s+(.+)$/gm,
+  '<div class="bullet-item pl-20 large-font mb-2 flex items-start"><span class="text flex-1">$1</span></div>'
+)
 
-  formatted = formatted.replace(/([^\n])\n\n([^\n])/g, '$1</p><p class="large-font">$2')
-  formatted = formatted.replace(/(?<!<\/div>)\n(?!<div)/g, '<br>')
-  formatted = formatted.replace(/^\s*<br>\s*<br>\s*/, '')
+  // --- Process line by line to handle mixed content properly ---
+  const lines = formatted.split('\n')
+  const processedLines = []
 
-  if (!formatted.includes('<div') && !formatted.includes('<p>')) {
-    formatted = `<p class="large-font">${formatted}</p>`
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    
+    // Skip empty lines
+    if (!line) {
+      processedLines.push('')
+      continue
+    }
+
+    // Check if this line is already formatted with HTML tags
+    if (line.match(/<(div|p|h[1-3])/)) {
+      processedLines.push(line)
+    }
+    // Check if this line should be a regular paragraph (not a list item or heading)
+    else if (!line.match(/^(\d+\.|\s*[●•-]|\s*#)/) && !line.endsWith(':')) {
+      // If previous line was also a regular paragraph, append to it
+      if (processedLines.length > 0 && 
+          !processedLines[processedLines.length - 1].match(/<(div|p|h[1-3])/) &&
+          processedLines[processedLines.length - 1] !== '') {
+        processedLines[processedLines.length - 1] += '<br>' + line
+      } else {
+        processedLines.push(`<p class="large-font">${line}</p>`)
+      }
+    }
+    // Leave other formatted lines as they are
+    else {
+      processedLines.push(line)
+    }
   }
+
+  formatted = processedLines.join('\n')
+
+  // --- Final cleanup ---
+  formatted = formatted.replace(/\n{2,}/g, '\n')
+  formatted = formatted.replace(/<p class="large-font"><\/p>/g, '')
+  formatted = formatted.replace(/<p class="large-font"><br><\/p>/g, '')
 
   return formatted
 }
 
 // ===== API integration with STREAMING =====
-const API_BASE = 'https://kozi-ai-agent-production.up.railway.app/api'.replace(/\/+$/, '')
+// const API_BASE = 'https://kozi-ai-agent-production.up.railway.app/api'.replace(/\/+$/, '')
+const API_BASE = 'http://localhost:5050/api'.replace(/\/+$/, '')
 
 // Admin detection logic
 function isAdminUser() {

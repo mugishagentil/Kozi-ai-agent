@@ -5,6 +5,24 @@ const employerChat = require('../services/chat/employer.service');
 const router = Router();
 
 /**
+ * IMPORTANT: Order matters! More specific routes (employer) must come BEFORE general routes (employee)
+ * Otherwise /chat/employer will match the /chat route first
+ */
+
+// ============================================
+// EMPLOYER (Job Provider) ROUTES - MUST BE FIRST
+// ============================================
+router.post('/employer/new', employerChat.newChat);
+router.post('/employer', employerChat.chat);
+router.get('/employer/sessions', employerChat.getUserChatSessions);
+router.delete('/employer/session/:sessionId', employerChat.deleteChatSession);
+router.delete('/employer/sessions/all', employerChat.deleteAllChatSessions);
+
+// ============================================
+// EMPLOYEE (Job Seeker) ROUTES - MUST BE LAST
+// ============================================
+
+/**
  * @openapi
  * /api/chat/new:
  *   post:
@@ -28,31 +46,14 @@ const router = Router();
  *     responses:
  *       200:
  *         description: Chat session created successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     session_id:
- *                       type: string
- *                     title:
- *                       type: string
- *                     message:
- *                       type: string
  */
-// EMPLOYEE (Job Seeker) ROUTES
 router.post('/new', employeeChat.newChat);
 
 /**
  * @openapi
  * /api/chat:
  *   post:
- *     summary: Send a message to Kozi AI assistant or load a previous chat session
+ *     summary: Send a message to Kozi AI assistant
  *     tags: [Chat]
  *     requestBody:
  *       required: true
@@ -63,30 +64,14 @@ router.post('/new', employeeChat.newChat);
  *             properties:
  *               sessionId:
  *                 type: string
- *                 description: ID of the chat session
  *               message:
  *                 type: string
- *                 description: The user’s message to the assistant
  *               isFirstUserMessage:
  *                 type: boolean
- *                 description: Flag to auto-generate a session title if it's the first message
- *             required:
- *               - sessionId
- *               - message
- *     responses:
- *       200:
- *         description: AI assistant response or previous chat messages
  */
 router.post('/', employeeChat.chat);
 router.get('/sessions', employeeChat.getUserChatSessions);
 router.delete('/session/:sessionId', employeeChat.deleteChatSession);
 router.delete('/sessions/all', employeeChat.deleteAllChatSessions);
-
-// EMPLOYER (Job Provider) ROUTES
-router.post('/employer/new', employerChat.newChat);
-router.post('/employer', employerChat.chat);
-router.get('/employer/sessions', employerChat.getUserChatSessions);
-router.delete('/employer/session/:sessionId', employerChat.deleteChatSession);
-router.delete('/employer/sessions/all', employerChat.deleteAllChatSessions);
 
 module.exports = router;

@@ -7,13 +7,13 @@ const {
 } = require('../../utils/chatUtils');
 const { PROMPT_TEMPLATES } = require('../../utils/prompts');
 const { fetchKoziWebsiteContext } = require('../../utils/fetchKoziWebsite');
-const { JobSeekerAgent } = require('../../utils/sqlAgent');
+const { EmployerAgent } = require('../../utils/EmployerAgent');
 
 const agentInstances = new Map();
 
 function getAgentForSession(sessionId, apiToken = null) {
   if (!agentInstances.has(sessionId)) {
-    const agent = new JobSeekerAgent('gpt-4-turbo', apiToken);
+    const agent = new EmployerAgent('gpt-4-turbo', apiToken);
     agent.setSessionId(sessionId);
     agentInstances.set(sessionId, agent);
   } else if (apiToken) {
@@ -52,7 +52,7 @@ async function newChat(req, res) {
       data: { users_id: parseInt(users_id), role_type: 'employer', title },
     });
 
-    const agent = new JobSeekerAgent('gpt-4-turbo', apiToken);
+    const agent = new EmployerAgent('gpt-4-turbo', apiToken);
     agent.setSessionId(session.id);
     agentInstances.set(session.id, agent);
 
@@ -289,12 +289,6 @@ async function chat(req, res) {
       if (agentResult.candidates && Array.isArray(agentResult.candidates)) {
         console.log('Sending candidate data:', agentResult.candidates.length);
         res.write(`data: ${JSON.stringify({ candidates: agentResult.candidates })}\n\n`);
-      }
-
-      // Send job data if available
-      if (agentResult.jobs && Array.isArray(agentResult.jobs)) {
-        console.log('Sending job data:', agentResult.jobs.length);
-        res.write(`data: ${JSON.stringify({ jobs: agentResult.jobs })}\n\n`);
       }
 
       // Stream response with faster typing effect

@@ -10,6 +10,12 @@ const { analyzeIntent } = require('../../utils/llmUtils');
 const { listUpcomingPayments, markAsPaid } = require('../payment.service');
 const { intelligentQuery, getInsights } = require('../adminDb.service');
 const templates = require('../../utils/responseTemplates');
+const { GmailAgentService } = require('../gmail.service'); // ADD THIS IMPORT
+const { fetchKoziWebsiteContext } = require('../../utils/fetchKoziWebsite');
+
+
+const MAX_WEBSITE_CONTEXT_CHARS = 500000;
+const gmailAgent = new GmailAgentService();
 
 // ============ SIMPLE ADMIN RESPONSES ============
 async function getAdminResponse(message) {
@@ -170,7 +176,8 @@ async function handlePayments(userMsg) {
 // ============ GMAIL HANDLER ============
 async function handleGmail(userMsg) {
   try {
-    const res = await gmail.invoke(userMsg);
+    // FIXED: Use the gmailAgent instance instead of undefined 'gmail'
+    const res = await gmailAgent.invoke(userMsg);
     
     // Check if it's a successful response
     if (res && res.success && res.output) {

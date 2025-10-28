@@ -645,14 +645,14 @@ main, .content, .page-content, .welcome-content, .job-card, .chat-messages, .cha
 
 .message-content .bullet-item {
   margin: var(--space-2) 0;
-  padding-left: var(--space-3);
+  padding-left: calc(var(--space-3) + 2.5rem); /* indent bullets more */
   position: relative;
 }
 
 .message-content .bullet-item::before {
   content: '•';
   position: absolute;
-  left: 0;
+  left: var(--space-6);
   color: var(--primary-600);
   font-weight: bold;
 }

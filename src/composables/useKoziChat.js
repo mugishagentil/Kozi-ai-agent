@@ -807,8 +807,8 @@ formatted = formatted.replace(
 }
 
 // ===== API integration with STREAMING =====
-// const API_BASE = 'https://kozi-ai-agent-production.up.railway.app/api'.replace(/\/+$/, '')
-const API_BASE = 'http://localhost:5050/api'.replace(/\/+$/, '')
+const API_BASE = 'https://kozi-ai-agent-production.up.railway.app/api'.replace(/\/+$/, '')
+// const API_BASE = 'http://localhost:5050/api'.replace(/\/+$/, '')
 
 // Admin detection logic
 function isAdminUser() {

@@ -1,6 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { ChatOpenAI } = require('@langchain/openai');
-const { SqlAgent } = require('../utils/sqlAgent');
+const axios = require('axios');
 
 const prisma = new PrismaClient();
 
@@ -8,6 +8,45 @@ const prisma = new PrismaClient();
 function extractSqlFromText(text) {
   const sqlMatch = text.match(/```sql\s*([\s\S]*?)\s*```/i);
   return sqlMatch ? sqlMatch[1].trim() : null;
+}
+
+// ============ API CALL TO JOB SEEKERS SERVICE ============
+async function fetchJobSeekersFromAPI(filters = {}) {
+  try {
+    const apiUrl = process.env.JOB_SEEKERS_API_URL;
+    if (!apiUrl) {
+      throw new Error('JOB_SEEKERS_API_URL is not configured in environment variables');
+    }
+
+    const response = await axios.get(apiUrl, {
+      params: filters,
+      timeout: 10000 // 10 second timeout
+    });
+
+    return {
+      success: true,
+      data: response.data.data || response.data,
+      count: response.data.count || (Array.isArray(response.data) ? response.data.length : 0)
+    };
+  } catch (error) {
+    console.error('[JOB_SEEKERS_API] Error:', error.message);
+    
+    if (error.code === 'ENOTFOUND') {
+      throw new Error('Job seekers API service is unavailable. Please check if the service is running.');
+    }
+    
+    if (error.response) {
+      // API responded with error status
+      throw new Error(`Job seekers API error: ${error.response.status} - ${error.response.data?.message || 'Unknown error'}`);
+    }
+    
+    if (error.request) {
+      // Request was made but no response received
+      throw new Error('Job seekers API is not responding. Please try again later.');
+    }
+    
+    throw new Error(`Failed to fetch job seekers: ${error.message}`);
+  }
 }
 
 // ============ NATURAL LANGUAGE TO SQL ============
@@ -136,51 +175,91 @@ async function filterEntities({ entity, query, location, category, skill, timefr
     
     // Base entity filtering
     if (entity === 'users' || entity === 'jobseekers') {
+      // Use API for job seekers instead of direct database query
+      const apiFilters = {};
+      
       if (query) {
-        whereClause.OR = [
-          { first_name: { contains: query, mode: 'insensitive' } },
-          { last_name: { contains: query, mode: 'insensitive' } },
-          { email: { contains: query, mode: 'insensitive' } }
-        ];
+        apiFilters.search = query;
       }
       
       if (location) {
         if (location.toLowerCase().includes('province')) {
-          whereClause.province = { contains: location, mode: 'insensitive' };
+          apiFilters.province = location;
         } else {
-          whereClause.district = { contains: location, mode: 'insensitive' };
+          apiFilters.district = location;
         }
       }
       
       if (timeframe) {
         const days = timeframe === 'week' ? 7 : timeframe === 'month' ? 30 : 365;
-        whereClause.created_at = {
-          gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-        };
+        apiFilters.created_after = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
       }
       
-      const results = await prisma.users.findMany({
-        where: whereClause,
-        select: {
-          id: true,
-          first_name: true,
-          last_name: true,
-          email: true,
-          phone: true,
-          province: true,
-          district: true,
-          created_at: true
-        },
-        take: limit,
-        orderBy: { created_at: 'desc' }
-      });
+      if (limit) {
+        apiFilters.limit = limit;
+      }
       
-      return {
-        success: true,
-        data: results,
-        count: results.length,
-        entity: 'job seekers'
-      };
+      try {
+        const apiResult = await fetchJobSeekersFromAPI(apiFilters);
+        
+        return {
+          success: true,
+          data: apiResult.data,
+          count: apiResult.count,
+          entity: 'job seekers',
+          source: 'api'
+        };
+      } catch (apiError) {
+        console.warn('[FILTER] API failed, falling back to database:', apiError.message);
+        
+        // Fallback to database query if API fails
+        if (query) {
+          whereClause.OR = [
+            { first_name: { contains: query, mode: 'insensitive' } },
+            { last_name: { contains: query, mode: 'insensitive' } },
+            { email: { contains: query, mode: 'insensitive' } }
+          ];
+        }
+        
+        if (location) {
+          if (location.toLowerCase().includes('province')) {
+            whereClause.province = { contains: location, mode: 'insensitive' };
+          } else {
+            whereClause.district = { contains: location, mode: 'insensitive' };
+          }
+        }
+        
+        if (timeframe) {
+          const days = timeframe === 'week' ? 7 : timeframe === 'month' ? 30 : 365;
+          whereClause.created_at = {
+            gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+          };
+        }
+        
+        const results = await prisma.users.findMany({
+          where: whereClause,
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            email: true,
+            phone: true,
+            province: true,
+            district: true,
+            created_at: true
+          },
+          take: limit,
+          orderBy: { created_at: 'desc' }
+        });
+        
+        return {
+          success: true,
+          data: results,
+          count: results.length,
+          entity: 'job seekers',
+          source: 'database'
+        };
+      }
     }
     
     if (entity === 'providers' || entity === 'employers') {
@@ -422,5 +501,6 @@ module.exports = {
   queryWithNaturalLanguage,
   getInsights,
   filterEntities,
-  intelligentQuery
+  intelligentQuery,
+  fetchJobSeekersFromAPI
 };

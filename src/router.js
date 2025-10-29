@@ -135,7 +135,7 @@ const routes = [
    { path: '/dashboard/settings', name: 'settings', component: DeleteMyAccount, meta: { title: 'All Jobs - Job Seeker', noHeaderFooter: true, requiresAuth: true } },
 
   { path: '/dashboard/generate-cv', name: 'generate-cv', component: GenerateCV, meta: { title: 'Generate CV - Job Seeker', noHeaderFooter: true, requiresAuth: true } },
-  { path: '/dashboard/ai-agent', name: 'ai-agent-jobseeker', component: JobSeekerAIChatPage, meta: { title: 'AI Agent - Job Seeker', noHeaderFooter: true, requiresAuth: true } },
+  { path: '/dashboard/ai-agent', name: 'ai-agent-jobseeker', component: JobSeekerAIChatPage, meta: { title: 'AI - Job Seeker', noHeaderFooter: true, requiresAuth: true } },
 
  
 
@@ -165,7 +165,7 @@ const routes = [
 
   { path: '/employer/change-password', name: 'change-password-provider', component: ChangePasswordFromProvider, meta: { title: 'Change Password - Job Provider', noHeaderFooter: true, requiresAuth: true } },
 
-  { path: '/employer/ai-agent', name: 'ai-agent-provider', component: JobProviderAIChatPage, meta: { title: 'AI Agent - Job Provider', noHeaderFooter: true, requiresAuth: true } },
+  { path: '/employer/ai-agent', name: 'ai-agent-provider', component: JobProviderAIChatPage, meta: { title: 'AI - Job Provider', noHeaderFooter: true, requiresAuth: true } },
 
 
     { path: '/employer/settings', name: 'delete-account', component: ProviderDeleteAccount, meta: { title: 'Settings - Job Provider', noHeaderFooter: true, requiresAuth: true } },
@@ -242,7 +242,7 @@ const routes = [
 
      { path: '/admin/category/', name: 'admin/category', component: AdminCategoryCompnent, meta: { title: 'Category - Admin', noHeaderFooter: true, requiresAuth: true } },
 
-     { path: '/admin/ai-agent', name: 'ai-agent-admin', component: AdminAIChatPage, meta: { title: 'AI Agent - Admin', noHeaderFooter: true, requiresAuth: true } },
+     { path: '/admin/ai-agent', name: 'ai-agent-admin', component: AdminAIChatPage, meta: { title: 'AI - Admin', noHeaderFooter: true, requiresAuth: true } },
 
 
 
@@ -268,7 +268,7 @@ const routes = [
 
  {path:'/agent/My-profile',name: 'agent/My-profile',component: AgentMyProfile,meta:{title: 'Change-password- Kozi Rwanda',noHeaderFooter:true, RequiredAuth:true }},
 
- {path:'/agent/ai-agent',name: 'ai-agent-agent',component: AgentAIChatPage,meta:{title: 'AI Agent - Agent',noHeaderFooter:true, requiresAuth:true }},
+ {path:'/agent/ai-agent',name: 'ai-agent-agent',component: AgentAIChatPage,meta:{title: 'AI - Agent',noHeaderFooter:true, requiresAuth:true }},
 
  
   

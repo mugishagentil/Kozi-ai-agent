@@ -87,7 +87,7 @@ export default {
         external: true, 
       },
       {
-        name: "AI Agent",
+        name: "AI",
         link: "/agent/ai-agent",
         icon: "fa-solid fa-robot",
         matchPrefix: ["/agent/ai-agent"]

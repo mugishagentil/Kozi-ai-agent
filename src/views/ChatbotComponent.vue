@@ -4,7 +4,7 @@
     <div v-if="!embedded" class="chatbot-header" :class="{ 'minimized-sidebar': sidebarMinimized && !isMobile, 'full-sidebar': !sidebarMinimized && !isMobile }">
       <div class="header-left">
         <div class="agent-info">
-          <h3>Kozi AI Agent</h3>
+          <h3>Kozi AI</h3>
           <div class="status-indicator">
             <span class="status-dot online"></span>
             <span>Online</span>

@@ -1119,8 +1119,7 @@ body.dark .chat-history::-webkit-scrollbar-thumb {
 .typing-indicator {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 8px;
+
   padding: 8px 12px;
   background: var(--primary-100);
   border-radius: 12px;
@@ -1489,7 +1488,7 @@ body.dark .user-message .message-avatar {
 }
 
 .large-font {
-  font-size: 1.2rem;  /* adjust as needed */
+  font-size: 1rem;  /* adjust as needed */
   line-height: 1.6;   /* makes it more readable */
 }
 

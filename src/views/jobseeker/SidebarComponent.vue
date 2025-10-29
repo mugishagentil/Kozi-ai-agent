@@ -159,7 +159,7 @@ export default {
         matchPrefix: ["/dashboard/message"]
       },
       {
-        name: "AI Agent",
+        name: "AI",
         link: "/dashboard/ai-agent",
         icon: "fa-solid fa-robot",
         matchPrefix: ["/dashboard/ai-agent"]

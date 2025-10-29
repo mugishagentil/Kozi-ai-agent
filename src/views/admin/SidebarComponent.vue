@@ -199,7 +199,7 @@ export default {
           ]
         },
         {
-          name: "AI Agent",
+          name: "AI",
           link: "/admin/ai-agent",
           icon: "fa-solid fa-robot",
           matchPrefix: ["/admin/ai-agent"]

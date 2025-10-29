@@ -5,7 +5,7 @@ const app = require('../app');
 const specs = swaggerJsdoc({
   definition: {
     openapi: '3.0.0',
-    info: { title: 'KOZI AI AGENT API', version: '1.0.0' },
+    info: { title: 'KOZI AI API', version: '1.0.0' },
     servers: [{ url: process.env.API_BASE_URL || 'http://localhost:5050' }],
     components: {
       securitySchemes: {

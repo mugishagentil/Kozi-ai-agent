@@ -95,7 +95,7 @@ export default {
         icon: "ti ti-message-chatbot",
         matchPrefix: ["/employer/support"]
        },
-       { name: "AI Agent",
+       { name: "AI",
        link: "/employer/ai-agent",
         icon: "fa-solid fa-robot",
         matchPrefix: ["/employer/ai-agent"]

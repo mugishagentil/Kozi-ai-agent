@@ -89,9 +89,7 @@ class EmployerAgent {
   }
 
   async getJobSeekersByCategory(categoryId) {
-    if (!categoryId) {
-      throw new Error('Category ID is required');
-    }
+    if (!categoryId) throw new Error('Category ID is required');
     const url = `${this.JOB_SEEKERS_BY_CATEGORY_API.replace(/\/+$/, '')}/${categoryId}`;
     return await this.fetchWithToken(url);
   }
@@ -102,98 +100,59 @@ class EmployerAgent {
     this.categoriesLoaded = true;
   }
 
-  // KEY METHOD: Only handle EMPLOYER-specific queries
+  // Only handle EMPLOYER-specific queries
   async shouldHandleQuery(userMessage) {
     console.log('[EmployerAgent] Checking if query is employer-related:', userMessage);
-    
+
+    const text = userMessage.toLowerCase().trim();
+
+    // Block any job seeker–type messages immediately
+    const jobSeekerPhrases = [
+      'i need a job', 'find me a job', 'show me jobs', 'available jobs',
+      'any openings', 'apply for', 'submit my cv', 'job application'
+    ];
+    if (jobSeekerPhrases.some(p => text.includes(p))) return false;
+
     try {
-      const prompt = `You are analyzing queries for an EMPLOYER/JOB PROVIDER assistant. 
-This assistant ONLY helps employers find candidates/workers, NOT job seekers looking for jobs.
+      const prompt = `You are analyzing queries for an EMPLOYER assistant. 
+This assistant ONLY helps employers find candidates or post jobs. 
 
 Query: "${userMessage}"
 
-Should this query be handled by an EMPLOYER assistant?
+Return JSON:
+{"shouldHandle": true/false, "reason": "brief explanation", "userType": "employer|employee|unclear"}
 
-HANDLE (return true) if query is about:
-- Finding candidates, workers, employees, job seekers
-- Searching for people to hire
-- Looking for staff or workforce
-- Candidate profiles or qualifications
-- "show me housekeepers", "find me sales candidates", "I need construction workers"
-- Posting jobs (employers post jobs)
-- Managing job listings as an employer
-
-DO NOT HANDLE (return false) if query is about:
-- Looking for a job (that's for job seekers)
-- "find me a job", "show me available jobs" (unless context clearly shows they want to POST jobs)
-- Applying to jobs
-- Resume/CV help for job seekers
-- Job search as an employee
-- Casual conversation, greetings
-
-Return JSON: {"shouldHandle": true/false, "reason": "brief explanation", "userType": "employer|employee|unclear"}
-
-Examples:
-- "show me salesperson candidates" → {"shouldHandle": true, "reason": "employer looking for candidates", "userType": "employer"}
-- "find me a salesperson job" → {"shouldHandle": false, "reason": "employee looking for job", "userType": "employee"}
-- "I need housekeepers" → {"shouldHandle": true, "reason": "employer needs workers", "userType": "employer"}
-- "show me available jobs" → {"shouldHandle": false, "reason": "employee seeking jobs", "userType": "employee"}
-- "how do I post a job" → {"shouldHandle": true, "reason": "employer wants to post job", "userType": "employer"}
-- "hello" → {"shouldHandle": false, "reason": "greeting", "userType": "unclear"}
-
-Return ONLY JSON:`;
+Only handle if it's clearly from an employer (looking to hire or post jobs).`;
 
       const response = await Promise.race([
         this.llm.invoke(prompt),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('LLM timeout')), 5000)
-        )
+        new Promise((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 5000))
       ]);
-      
+
       const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-      
-      if (!jsonMatch) {
-        console.log('[EmployerAgent] No JSON found, defaulting to false');
-        return false;
-      }
+      if (!jsonMatch) return false;
 
       const parsed = JSON.parse(jsonMatch[0]);
-      console.log('[EmployerAgent] Analysis:', parsed);
-      
-      // CRITICAL: Only handle if userType is "employer"
       return parsed.shouldHandle === true && parsed.userType === 'employer';
-
     } catch (error) {
-      console.error('[EmployerAgent] Error in shouldHandleQuery:', error.message);
-      
-      // Fallback: Check for employer-specific keywords
-      const lowerMsg = userMessage.toLowerCase().trim();
+      console.error('[EmployerAgent] Fallback keyword check:', error.message);
+
       const employerKeywords = [
-        'candidate', 'worker', 'employee', 'staff', 
-        'hire', 'recruit', 'find me', 'show me',
-        'need workers', 'need staff', 'post a job', 'post job'
+        'candidate', 'worker', 'employee', 'staff', 'hire', 'recruit',
+        'find workers', 'find candidates', 'post job', 'post a job', 'looking to hire'
       ];
-      
-      const isEmployerQuery = employerKeywords.some(keyword => lowerMsg.includes(keyword));
-      
-      // Exclude if it's clearly a job search
-      const jobSearchKeywords = ['find me a job', 'show me jobs', 'available jobs', 'job search'];
-      const isJobSearch = jobSearchKeywords.some(keyword => lowerMsg.includes(keyword));
-      
-      console.log('[EmployerAgent] Fallback check:', { isEmployerQuery, isJobSearch });
-      return isEmployerQuery && !isJobSearch;
+      const isEmployer = employerKeywords.some(k => text.includes(k));
+      return isEmployer; // never respond to "find me a job"
     }
   }
 
   async extractFiltersFromQuery(userQuery) {
-    if (!this.categoriesLoaded) {
-      await this.loadCategories();
-    }
+    if (!this.categoriesLoaded) await this.loadCategories();
 
     const categoryList = this.categories.map(c => `${c.name} (ID: ${c.id})`).join(', ');
-    
-    const prompt = `Extract CANDIDATE search parameters for an EMPLOYER from: "${userQuery}"
+
+    const prompt = `Extract candidate search parameters for an employer from: "${userQuery}"
 
 Categories: ${categoryList}
 
@@ -201,80 +160,54 @@ Return JSON:
 {
   "matchedCategory": "exact category name or null",
   "categoryId": "ID number or null",
-  "location": "location or null",
-  "intentType": "candidate_search|specific_category|candidate_details|post_job|general_inquiry",
-  "candidateName": "name if asking about specific candidate",
-  "candidateIndex": "number if referring to candidate by number",
-  "confidence": "high|medium|low"
-}
-
-Examples:
-- "show me salesperson candidates" → intentType: "specific_category", matchedCategory: "Sales"
-- "find me construction workers" → intentType: "specific_category", matchedCategory: "Construction"
-- "I need housekeepers" → intentType: "specific_category", matchedCategory: "Cleaning"
-- "show me candidates" → intentType: "candidate_search", matchedCategory: null
-- "tell me about candidate 1" → intentType: "candidate_details", candidateIndex: 1
-- "how do I post a job" → intentType: "post_job"
-
-Return ONLY JSON:`;
+  "intentType": "candidate_search|specific_category|candidate_details|post_job|general_inquiry"
+}`;
 
     const response = await this.llm.invoke(prompt);
     const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-    
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return { intentType: 'unknown' };
 
     const parsed = JSON.parse(jsonMatch[0]);
-    
     return {
       category: parsed.categoryId || null,
       categoryName: parsed.matchedCategory || null,
-      location: parsed.location || null,
-      intentType: parsed.intentType || 'unknown',
-      candidateName: parsed.candidateName || null,
-      candidateIndex: parsed.candidateIndex || null,
-      confidence: parsed.confidence || 'medium'
+      intentType: parsed.intentType || 'unknown'
     };
   }
 
   async performSearch(categoryId = null) {
     console.log('🔍 EmployerAgent: Searching for candidates, category:', categoryId);
-    
-    if (!categoryId) {
-      // Get all candidates from all categories
-      const allCandidates = [];
-      for (const category of this.categories) {
-        const candidates = await this.getJobSeekersByCategory(category.id);
-        allCandidates.push(...candidates);
+
+    try {
+      if (!categoryId) {
+        const allCandidates = [];
+        for (const category of this.categories) {
+          const candidates = await this.getJobSeekersByCategory(category.id);
+          allCandidates.push(...candidates);
+        }
+        return this.rankCandidates(allCandidates).slice(0, 20);
       }
-      return this.rankCandidates(allCandidates).slice(0, 20);
+
+      const candidates = await this.getJobSeekersByCategory(categoryId);
+      return this.rankCandidates(candidates).slice(0, 20);
+    } catch (err) {
+      console.error('Candidate search failed:', err.message);
+      return [];
     }
-    
-    const candidates = await this.getJobSeekersByCategory(categoryId);
-    return this.rankCandidates(candidates).slice(0, 20);
   }
 
   rankCandidates(candidates) {
     return candidates.sort((a, b) => {
       if (a.verification_badge && !b.verification_badge) return -1;
       if (!a.verification_badge && b.verification_badge) return 1;
-      
-      const aComplete = this.calculateProfileCompleteness(a);
-      const bComplete = this.calculateProfileCompleteness(b);
-      return bComplete - aComplete;
+      return this.calculateProfileCompleteness(b) - this.calculateProfileCompleteness(a);
     });
   }
 
   calculateProfileCompleteness(candidate) {
-    let score = 0;
     const fields = ['first_name', 'last_name', 'email', 'phone', 'province', 'district', 'image'];
-    
-    fields.forEach(field => {
-      if (candidate[field] && candidate[field].trim() !== '') {
-        score += 1;
-      }
-    });
-    
+    let score = fields.reduce((acc, f) => acc + (candidate[f] ? 1 : 0), 0);
     if (candidate.verification_badge) score += 2;
     return score;
   }
@@ -282,69 +215,54 @@ Return ONLY JSON:`;
   async processMessage(userMessage) {
     try {
       if (!this.API_TOKEN) {
-        return {
-          type: 'error',
-          message: 'Authentication required. Please provide an API token.',
-          code: 'NO_TOKEN'
-        };
+        return { type: 'error', message: 'Please provide a valid API token to continue.', code: 'NO_TOKEN' };
       }
 
-      // Check if this is an employer query
       const shouldHandle = await this.shouldHandleQuery(userMessage);
-      if (!shouldHandle) {
-        console.log('[EmployerAgent] Query rejected - not employer-related');
-        return null;
-      }
+      if (!shouldHandle) return null;
 
-      if (!this.categoriesLoaded) {
-        await this.loadCategories();
-      }
+      if (!this.categoriesLoaded) await this.loadCategories();
+      const extracted = await this.extractFiltersFromQuery(userMessage);
 
-      const extractedFilters = await this.extractFiltersFromQuery(userMessage);
-
-      // Handle job posting questions (not search-related)
-      if (extractedFilters.intentType === 'post_job') {
+      if (extracted.intentType === 'post_job') {
         return {
           type: 'clarification',
-          message: `To post a job on Kozi:
-
-1. Go to **Add Jobs** in your dashboard
-2. Click **Add Job**
-3. Fill in the job details (title, description, requirements, salary, etc.)
-4. Submit your job
-
-**Note:** Adding jobs is a premium feature. Once you submit your job, our team will contact you with payment details before your job is published.
-
-Need help with anything else?`
+          message: `📝 To post a job on Kozi:\n\n1. Open your **Dashboard**\n2. Go to **Add Jobs** → **Add Job**\n3. Fill out job details (title, requirements, etc.)\n4. Submit the job post\n\n💡 Posting jobs is a premium feature — our team will contact you with payment details once submitted.`
         };
       }
 
-      // Handle candidate search
-      if (extractedFilters.intentType === 'candidate_search' || extractedFilters.intentType === 'specific_category') {
-        const results = await this.performSearch(extractedFilters.category);
+      if (['candidate_search', 'specific_category'].includes(extracted.intentType)) {
+        const results = await this.performSearch(extracted.category);
         this.lastSearchResults = results;
         this.hasActiveSearch = true;
 
-        const categoryInfo = extractedFilters.categoryName ? ` ${extractedFilters.categoryName}` : '';
-        const message = `Excellent! I found ${results.length}${categoryInfo} candidates for you! 😊
+        if (!results.length) {
+          return {
+            type: 'results',
+            data: [],
+            candidates: [],
+            message: `😕 I couldn’t find any candidates${extracted.categoryName ? ` in ${extracted.categoryName}` : ''} right now.\n\nWould you like me to check another category or region?`
+          };
+        }
 
-Scroll down to see their profiles with full details including experience, skills, and contact information.`;
+        const msg = `✅ Great news! I found **${results.length} ${extracted.categoryName || ''} candidates** for you.\n\nHere’s what I discovered — let’s check them out together 👇`;
 
         return {
           type: 'results',
           data: results,
           candidates: results.map(c => this.formatCandidateForCard(c)),
-          message: message,
+          message: msg,
           searchMode: 'candidates'
         };
       }
 
-      // If we get here, return null to fallback to general chat
       return null;
-
     } catch (error) {
       console.error('[EmployerAgent] Error processing message:', error);
-      return null;
+      return {
+        type: 'error',
+        message: `⚠️ Sorry, something went wrong while searching. Please try again later.`,
+      };
     }
   }
 

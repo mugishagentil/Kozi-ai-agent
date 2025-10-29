@@ -195,15 +195,21 @@ class JobSeekerAgent {
 Categories: ${categoryList}
 
 Examples:
-- "sales jobs" → intentType: "specific_category", matchedCategory: "Sales"
+- "sales jobs" → intentType: "specific_category", matchedCategory: "Salesperson", categoryId: [corresponding ID]
 - "find me a job" → intentType: "job_search", matchedCategory: null
 - "available jobs" → intentType: "general_availability", matchedCategory: null
 - "software engineering" → intentType: "specific_category", matchedCategory: "IT"
 - "tell me more about job 1" → intentType: "details_request"
 
-Match variations: "sales"→"Sales", "accounting"→"Accountant", "tech"→"IT", "programming"→"IT"
+IMPORTANT: When matching categories, you MUST return the EXACT categoryId from the list above.
+Match variations: "sales"→"Salesperson", "accounting"→"Accountant", "data entry"→"Data Entry Clerk", "construction"→"Construction Worker"
 
-Return ONLY JSON:`;
+Return ONLY JSON with categoryId as NUMBER:
+{
+  "categoryId": 4,
+  "matchedCategory": "Data Entry Clerk",
+  "intentType": "specific_category"
+}`;
 
       const response = await Promise.race([
         this.llm.invoke(prompt),
@@ -245,22 +251,19 @@ CRITICAL: This is a JOB SEEKER agent - it helps people FIND JOBS, not hire peopl
 
 Query: "${userMessage}"
 
-MUST REJECT (shouldHandle: false) these scenarios:
-- Employer/recruiter queries: "hire", "recruit", "find talent", "need workers", "looking for candidates", "I want to hire"
-- Simple greetings: "hi", "hello", "hey", "good morning"
-- Casual conversation unrelated to finding jobs
-- Technical support issues
-- Personal questions to the assistant
-- Questions about the company or platform
-- Completely unrelated topics
+MUST REJECT (shouldHandle: false) these scenarios ONLY:
+- CLEAR employer/recruiter queries: "hire", "recruit", "find talent", "need workers", "looking for candidates", "I want to hire", "post a job", "post job", "looking to hire", "want to hire", "need to hire", "searching for candidates", "find candidates", "looking for employees", "need employees", "want to recruit", "seeking talent", "talent search"
+- Business owner queries: "I own a business", "my company needs", "we are hiring", "our company is looking for", "I need staff", "I want to post a vacancy"
 
-ONLY ACCEPT (shouldHandle: true) these scenarios:
-- Job seeker looking for work: "find me a job", "I need work", "job openings"
-- Asking about available positions: "what jobs are available", "show me jobs"
-- Specific job searches: "sales jobs", "IT positions", "construction work"
-- Job categories inquiry: "what types of jobs", "job categories"
+MUST ACCEPT (shouldHandle: true) these scenarios:
+- Job seeker looking for work: "find me a job", "I need work", "job openings", "looking for work", "need a job", "searching for jobs"
+- Asking about available positions: "what jobs are available", "show me jobs", "available positions", "job listings"
+- Specific job searches: "sales jobs", "IT positions", "construction work", "driver jobs", "teaching jobs"
+- Job categories inquiry: "what types of jobs", "job categories", "what kind of jobs are there"
 - Follow-up questions about previously shown jobs
-- Job details requests: "tell me about job 1", "more details"
+- Job details requests: "tell me about job 1", "more details", "show me details", "about position 2"
+- General questions about Kozi: "what is kozi", "describe kozi rwanda services", "what is the mission of kozi", "how does kozi work", "tell me about kozi"
+- Platform guidance: "how to apply", "how to create profile", "how to use kozi"
 
 Return JSON: {"shouldHandle": true/false, "reason": "brief explanation"}
 
@@ -269,10 +272,15 @@ Examples:
 - "I want to hire someone" → {"shouldHandle": false, "reason": "employer query, not job seeker"}
 - "show me candidates" → {"shouldHandle": false, "reason": "recruiter/employer request"}
 - "I need workers" → {"shouldHandle": false, "reason": "hiring request"}
-- "hello" → {"shouldHandle": false, "reason": "greeting"}
+- "post a job" → {"shouldHandle": false, "reason": "employer posting job"}
+- "hello" → {"shouldHandle": true, "reason": "greeting - allow general conversation"}
 - "what jobs are available" → {"shouldHandle": true, "reason": "job seeker asking about positions"}
 - "sales positions" → {"shouldHandle": true, "reason": "specific job search"}
-- "how are you" → {"shouldHandle": false, "reason": "casual conversation"}
+- "how are you" → {"shouldHandle": true, "reason": "general conversation"}
+- "I want to hire a talent" → {"shouldHandle": false, "reason": "employer hiring request"}
+- "describe kozi rwanda services" → {"shouldHandle": true, "reason": "general question about platform"}
+- "what is the mission of kozi" → {"shouldHandle": true, "reason": "general platform inquiry"}
+- "how does kozi work" → {"shouldHandle": true, "reason": "platform guidance for job seekers"}
 
 Return ONLY JSON:`;
 
@@ -287,32 +295,62 @@ Return ONLY JSON:`;
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       
       if (!jsonMatch) {
-        console.log('[JobSeekerAgent] No JSON found in response, defaulting to false');
-        return false;
+        console.log('[JobSeekerAgent] No JSON found in response, defaulting to true for fallback');
+        return { shouldHandle: true, reason: 'No JSON response from LLM, defaulting to true' };
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
       console.log('[JobSeekerAgent] LLM analysis result:', parsed);
       
-      return parsed.shouldHandle === true;
+      return parsed;
 
     } catch (error) {
       console.error('[JobSeekerAgent] Error in shouldHandleQuery:', error.message);
       
       const lowerMsg = userMessage.toLowerCase().trim();
       
-      // Reject employer/recruiter keywords
-      const employerKeywords = ['hire', 'recruit', 'talent', 'candidate', 'worker', 'employee', 'staff'];
-      if (employerKeywords.some(kw => lowerMsg.includes(kw))) {
-        console.log('[JobSeekerAgent] Fallback: Rejected as employer query');
+      // STRICT employer/recruiter keywords - only clear hiring intent
+      const strictEmployerKeywords = [
+        'hire', 'recruit', 'talent', 'candidate', 'worker', 'employee', 'staff',
+        'post a job', 'post job', 'looking to hire', 'want to hire', 'need to hire',
+        'searching for candidates', 'find candidates', 'looking for employees',
+        'need employees', 'want to recruit', 'seeking talent', 'talent search',
+        'my company', 'our company', 'business needs', 'we are hiring', 'vacancy posting',
+        'i need staff', 'i want to post', 'post vacancy', 'job posting'
+      ];
+      
+      // Check for CLEAR employer intent - must have hiring-related keywords in context
+      const hasClearEmployerIntent = strictEmployerKeywords.some(kw => {
+        if (lowerMsg.includes(kw)) {
+          // Additional context checks to avoid false positives
+          if (kw === 'talent' && !lowerMsg.includes('hire') && !lowerMsg.includes('recruit') && !lowerMsg.includes('find')) {
+            return false; // "talent" alone might not be employer intent
+          }
+          if (kw === 'candidate' && !lowerMsg.includes('hire') && !lowerMsg.includes('recruit') && !lowerMsg.includes('find')) {
+            return false; // "candidate" alone might not be employer intent
+          }
+          return true;
+        }
         return false;
+      });
+      
+      if (hasClearEmployerIntent) {
+        console.log('[JobSeekerAgent] Fallback: Rejected as clear employer query');
+        return { shouldHandle: false, reason: 'Clear employer query detected in fallback' };
       }
       
-      // Reject greetings
+      // Accept greetings and general questions
       const greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening'];
       if (greetings.some(greet => lowerMsg === greet || lowerMsg === greet + '!')) {
-        console.log('[JobSeekerAgent] Fallback: Rejected as greeting');
-        return false;
+        console.log('[JobSeekerAgent] Fallback: Accepted as greeting');
+        return { shouldHandle: true, reason: 'Greeting detected in fallback' };
+      }
+      
+      // Accept general Kozi platform questions
+      const koziPlatformKeywords = ['kozi', 'mission', 'vision', 'services', 'what is', 'how does', 'tell me about'];
+      if (koziPlatformKeywords.some(kw => lowerMsg.includes(kw))) {
+        console.log('[JobSeekerAgent] Fallback: Accepted as platform question');
+        return { shouldHandle: true, reason: 'Platform question detected' };
       }
       
       // Accept if we have an active search
@@ -320,18 +358,20 @@ Return ONLY JSON:`;
         const followUpKeywords = ['more', 'details', 'yes', 'show', 'tell', 'which', 'what', 'number', 'other'];
         if (followUpKeywords.some(kw => lowerMsg.includes(kw))) {
           console.log('[JobSeekerAgent] Fallback: Accepted as follow-up query');
-          return true;
+          return { shouldHandle: true, reason: 'Follow-up query in active search' };
         }
       }
       
       // Accept job seeker keywords
-      const jobSeekerKeywords = ['job', 'work', 'position', 'employment', 'opening', 'opportunity'];
+      const jobSeekerKeywords = ['job', 'work', 'position', 'employment', 'opening', 'opportunity', 'vacancy', 'career'];
       if (jobSeekerKeywords.some(kw => lowerMsg.includes(kw))) {
         console.log('[JobSeekerAgent] Fallback: Accepted as job seeker query');
-        return true;
+        return { shouldHandle: true, reason: 'Job seeker keywords detected' };
       }
       
-      return false;
+      // DEFAULT: Accept most queries to allow general conversation
+      console.log('[JobSeekerAgent] Fallback: Defaulting to true for general conversation');
+      return { shouldHandle: true, reason: 'Defaulting to true for general conversation' };
     }
   }
 
@@ -345,86 +385,125 @@ Return ONLY JSON:`;
     
     const lowerInput = userInput.toLowerCase().trim();
     
+    // First try exact match (case-insensitive)
     for (const category of this.categories) {
       if (lowerInput === category.name.toLowerCase()) {
+        console.log(`[matchUserInputToCategory] Exact match found: ${category.name} (ID: ${category.id})`);
         return category.id;
       }
     }
     
+    // Try number match
     const numberMatch = lowerInput.match(/^(\d+)$/);
     if (numberMatch) {
       const index = parseInt(numberMatch[1]) - 1;
       if (index >= 0 && index < this.categories.length) {
+        console.log(`[matchUserInputToCategory] Number match found: ${this.categories[index].name} (ID: ${this.categories[index].id})`);
         return this.categories[index].id;
       }
     }
     
+    // Try ordinal match
     const ordinals = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
     const ordinalIndex = ordinals.findIndex(ordinal => lowerInput.includes(ordinal));
     if (ordinalIndex >= 0 && ordinalIndex < this.categories.length) {
+      console.log(`[matchUserInputToCategory] Ordinal match found: ${this.categories[ordinalIndex].name} (ID: ${this.categories[ordinalIndex].id})`);
       return this.categories[ordinalIndex].id;
     }
     
+    // Try partial match
+    for (const category of this.categories) {
+      const categoryName = category.name.toLowerCase();
+      
+      if (lowerInput.includes(categoryName) || categoryName.includes(lowerInput)) {
+        console.log(`[matchUserInputToCategory] Partial match found: ${category.name} (ID: ${category.id})`);
+        return category.id;
+      }
+    }
+    
+    // Try synonyms
     const categorySynonyms = {
-      'construction': ['building', 'construction', 'mason', 'carpenter', 'builder'],
-      'hospitality': ['hotel', 'restaurant', 'cook', 'chef', 'waiter', 'waitress', 'service'],
-      'healthcare': ['medical', 'health', 'nurse', 'doctor', 'care', 'hospital'],
-      'security': ['guard', 'security', 'protection', 'watchman'],
-      'cleaning': ['cleaner', 'housekeeping', 'janitor', 'maid'],
+      'construction worker': ['building', 'construction', 'mason', 'carpenter', 'builder'],
+      'waiter / waitress': ['hotel', 'restaurant', 'cook', 'chef', 'waiter', 'waitress', 'service', 'hospitality'],
+      'doctor': ['medical', 'health', 'nurse', 'doctor', 'care', 'hospital', 'healthcare'],
+      'security guard': ['guard', 'security', 'protection', 'watchman'],
+      'housekeeper': ['cleaner', 'housekeeping', 'janitor', 'maid', 'cleaning'],
       'driver': ['driving', 'transport', 'delivery', 'taxi'],
-      'accounting': ['accountant', 'finance', 'bookkeeping', 'money'],
-      'it': ['computer', 'technology', 'programming', 'software', 'tech', 'software engineering', 'developer', 'coding', 'programmer'],
-      'education': ['teacher', 'teaching', 'school', 'education', 'tutor'],
-      'sales': ['selling', 'sales', 'marketing', 'retail', 'shop']
+      'accountant': ['accountant', 'finance', 'bookkeeping', 'money', 'accounting'],
+      'teacher': ['teacher', 'teaching', 'school', 'education', 'tutor'],
+      'salesperson': ['selling', 'sales', 'marketing', 'retail', 'shop'],
+      'data entry clerk': ['data entry', 'typing', 'clerk', 'data']
     };
     
     for (const category of this.categories) {
       const categoryName = category.name.toLowerCase();
       
-      if (lowerInput.includes(categoryName) || categoryName.includes(lowerInput)) {
-        return category.id;
-      }
-      
       if (categorySynonyms[categoryName]) {
         for (const synonym of categorySynonyms[categoryName]) {
           if (lowerInput.includes(synonym)) {
+            console.log(`[matchUserInputToCategory] Synonym match found: ${category.name} (ID: ${category.id})`);
             return category.id;
           }
         }
       }
     }
     
+    console.log(`[matchUserInputToCategory] No match found for: ${userInput}`);
     return null;
   }
 
-async generateAIResponse(userQuery, searchResults, filters, context = {}) {
-  try {
-    const resultCount = searchResults.length;
-    const { intentType, askedForDetails } = context;
+  async generateAIResponse(userQuery, searchResults, filters, context = {}) {
+    try {
+      const resultCount = searchResults.length;
+      const { intentType, askedForDetails } = context;
 
-    let prompt = '';
+      let prompt = '';
 
-    if (resultCount === 1) {
-      const job = searchResults[0];
-      const companyName = this.sanitizeField(job.company) || 'Company';
-      const jobData = {
-        title: this.sanitizeField(job.job_title) || 'Not specified',
-        company: companyName,
-        employmentType: this.sanitizeField(job.employment_type || job.location) || 'Not specified',
-        salaryMin: job.salary_min,
-        salaryMax: job.salary_max,
-        description: this.sanitizeField(job.job_description),
-        requirements: this.sanitizeField(job.requirements),
-        responsibilities: this.sanitizeField(job.responsability),
-        additionalInfo: this.sanitizeField(job.conclusion),
-        postedDate: job.published_date,
-        deadline: job.deadline_date
-      };
+      // ✅ 1. Handle ZERO RESULTS gracefully
+      if (resultCount === 0) {
+        prompt = `
+User asked: "${userQuery}"
 
-      if (intentType === 'details_request' || askedForDetails) {
-        prompt = `User requested details about a job.
+No jobs were found matching this request.
 
-Job Information (clean text provided):
+Generate a short, friendly, and professional message that:
+1. Politely tells the user that no jobs were found for their query.
+2. Encourages them to try again with different keywords or a different category.
+3. Gives one of these examples of how to rephrase (in parentheses, not bullet points).
+4. Ends with: "Would you like me to help you look for a different type of job?"
+
+Example tone:
+"Sorry, I couldn't find any housekeeper jobs right now. You can try searching for cleaning or hospitality roles instead. Would you like me to help you look for a different type of job?"
+
+Keep it conversational and encouraging.`;
+
+        const response = await this.llm.invoke(prompt);
+        const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+        return content.trim();
+      }
+
+      // ✅ 2. ONE JOB FOUND
+      if (resultCount === 1) {
+        const job = searchResults[0];
+        const companyName = this.sanitizeField(job.company) || 'Company';
+        const jobData = {
+          title: this.sanitizeField(job.job_title) || 'Not specified',
+          company: companyName,
+          employmentType: this.sanitizeField(job.employment_type || job.location) || 'Not specified',
+          salaryMin: job.salary_min,
+          salaryMax: job.salary_max,
+          description: this.sanitizeField(job.job_description),
+          requirements: this.sanitizeField(job.requirements),
+          responsibilities: this.sanitizeField(job.responsability),
+          additionalInfo: this.sanitizeField(job.conclusion),
+          postedDate: job.published_date,
+          deadline: job.deadline_date
+        };
+
+        if (intentType === 'details_request' || askedForDetails) {
+          prompt = `User requested details about a job.
+
+Job Information:
 - Title: ${jobData.title}
 - Company: ${jobData.company}
 - Employment Type: ${jobData.employmentType}
@@ -436,151 +515,81 @@ ${jobData.additionalInfo ? `- Additional Info: ${jobData.additionalInfo}` : ''}
 ${jobData.postedDate ? `- Posted: ${this.formatDate(jobData.postedDate)}` : ''}
 ${jobData.deadline ? `- Deadline: ${this.formatDate(jobData.deadline)}` : ''}
 
-Your task:
-1. Start with a **friendly, concise, one-sentence introductory message** 
-   (e.g., "I'm happy to provide all the details for the ${jobData.title} position!").
-2. Follow that with the complete job details in **exactly this markdown structure**:
+Generate a friendly detailed markdown response with a short intro sentence, followed by all details in clear sections.
+End with: "Let me know if you need help with applying!"`;
+        } else {
+          prompt = `User selected the ${jobData.title} job.
 
-**Job Title:** ${jobData.title}  
-**Company:** ${jobData.company}  
-**Employment Type:** ${jobData.employmentType}  
-
-**Description:**  
-${jobData.description || 'Not specified'}
-
-**Requirements:**  
-${jobData.requirements ? jobData.requirements.split('\n').map(line => `- ${line.trim()}`).join('\n') : 'Not specified'}
-
-**Responsibilities:**  
-${jobData.responsibilities ? jobData.responsibilities.split('\n').map(line => `- ${line.trim()}`).join('\n') : 'Not specified'}
-
-${jobData.additionalInfo ? `**Additional Information:**\n${jobData.additionalInfo}\n\n` : ''}
-${jobData.postedDate ? `**Posted:** ${this.formatDate(jobData.postedDate)}\n\n` : ''}
-${jobData.deadline ? `**Deadline:** ${this.formatDate(jobData.deadline)}` : ''}
-
-End with: "Let me know if you need help with applying!"
-
-IMPORTANT:
-- Always use the provided company name: "${jobData.company}"
-- Format lists with "- " prefix for bullet points.
-- Keep spacing clean (blank line between sections).`;
-
-      } else {
-        prompt = `User selected the ${jobData.title} job.
-
-Job Data:
-- Title: ${jobData.title}
-- Company: ${jobData.company}
-- Employment Type: ${jobData.employmentType}
-- Salary Range: ${jobData.salaryMin && jobData.salaryMax && jobData.salaryMin !== 1 && jobData.salaryMax !== 1 ? `${jobData.salaryMin} - ${jobData.salaryMax}` : 'Not specified'}
-
-Generate a single paragraph response (3-4 sentences) that:
-1. Confirms the job selection immediately (e.g., "The **${jobData.title}** job is available...").
-2. States the company, employment type, and salary range using this structure: 
-   "The job available is from **${jobData.company}**, it is **${jobData.employmentType}**. 
-   ${jobData.salaryMin && jobData.salaryMax && jobData.salaryMin !== 1 && jobData.salaryMax !== 1 ? `The salary range is between **${jobData.salaryMin} and ${jobData.salaryMax}**.` : 'The salary details will be provided during the application process.'}"
-3. Ends with: "If you need to know more details, let me know, I'm happy to help."
-
-Be professional and conversational. Use the exact company name: "${jobData.company}".`;
+Generate a 3–4 sentence paragraph confirming the job selection.
+Mention the title, company, employment type, and salary (if available).
+End with: "If you need to know more details, let me know — I'm happy to help."`;
+        }
       }
 
-    } else {
-      // MULTIPLE JOBS - Use actual company names from searchResults
-      const jobsList = searchResults.slice(0, 10).map((job, idx) => {
-        const companyName = this.sanitizeField(job.company) || 'Company';
-        return {
-          number: idx + 1,
-          title: this.sanitizeField(job.job_title) || 'Not specified',
-          company: companyName,
-          employmentType: this.sanitizeField(job.employment_type || job.location) || 'Not specified'
-        };
-      });
-
-      if (intentType === 'general_availability') {
-        // Use actual job details with company names
-        const jobDetails = searchResults.slice(0, 10).map((job, idx) => {
+      // ✅ 3. MULTIPLE JOBS FOUND
+      if (resultCount > 1) {
+        const jobsList = searchResults.slice(0, 10).map((job, idx) => {
           const companyName = this.sanitizeField(job.company) || 'Company';
           return {
             number: idx + 1,
             title: this.sanitizeField(job.job_title) || 'Not specified',
-            company: companyName
+            company: companyName,
+            employmentType: this.sanitizeField(job.employment_type || job.location) || 'Not specified'
           };
         });
 
-        prompt = `User asked about available jobs (e.g., "show me available jobs", "find me a job", "what jobs are available").
+        if (intentType === 'general_availability') {
+          prompt = `User asked about available jobs (e.g., "show me available jobs").
 
-We found ${resultCount} jobs total. Showing first ${jobDetails.length}:
+We found ${resultCount} jobs total. Showing first ${jobsList.length}:
 
-${jobDetails.map(j => `${j.number}. **${j.title}** at ${j.company}`).join('\n')}
+${jobsList.map(j => `${j.number}. **${j.title}** at ${j.company}`).join('\n')}
 
-Generate a friendly, helpful response that:
-1. Starts with enthusiasm
-2. Shows the available positions in a clear, scannable format using the EXACT job titles and company names from above
-3. Ends with: "Which position interests you most? I can give you full details about any of these jobs, or help you find something more specific!"
-
-CRITICAL: Use the exact company names and job titles from the list above. Do not use [Company] placeholder.
-
-Make it conversational, encouraging, and action-oriented. Use emojis sparingly but effectively.`;
-
-      } else {
-        prompt = `User asked: "${userQuery}"
+Generate a friendly, helpful response that lists the jobs and ends with:
+"Which position interests you most? I can give you full details about any of these jobs, or help you find something more specific!"`;
+        } else {
+          prompt = `User asked: "${userQuery}"
 
 Found ${resultCount} ${filters.categoryName || ''} jobs. Showing first ${jobsList.length}:
 
 ${jobsList.map(j => `${j.number}. ${j.title} at ${j.company} (${j.employmentType})`).join('\n')}
 
-Generate a response that:
-1. States the number found enthusiastically ("Excellent! I found ${resultCount} ${filters.categoryName || ''} jobs for you:").
-2. Lists jobs EXACTLY as shown above with their actual titles and company names
-3. Ends with: "Which job interests you most? I can give you full details about any of these positions!"
-
-IMPORTANT:
-- Use proper markdown with blank lines or double spaces at line ends
-- Keep each job entry clean and consistent
-- Use the REAL company names from the list - do not use [Company] placeholder
-- Be conversational, encouraging, and action-oriented
-- Make users feel excited about the opportunities`;
-
+Generate a response that starts with enthusiasm, lists the jobs, and ends with:
+"Which job interests you most? I can give you full details about any of these positions!"`;
+        }
       }
+
+      // ✅ 4. Invoke LLM
+      const response = await this.llm.invoke(prompt);
+      const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+
+      return content.trim();
+
+    } catch (error) {
+      console.error('Error generating AI response:', error);
+      
+      // Graceful fallback without generating hypothetical data
+      const resultCount = searchResults.length;
+      
+      if (resultCount === 0) {
+        return `I couldn't find any ${filters.categoryName ? filters.categoryName + ' ' : ''}jobs matching your criteria right now. You might want to try:\n\n• Searching with different keywords\n• Looking at other job categories\n• Checking back later as new opportunities are added regularly\n\nWould you like me to help you look for a different type of job?`;
+      }
+      
+      if (resultCount === 1) {
+        const job = searchResults[0];
+        const companyName = this.sanitizeField(job.company) || 'Company';
+        return `I found this opportunity for you:\n\n**${job.job_title || 'Position'}** at **${companyName}**\n\nWould you like to know more details about this position?`;
+      }
+      
+      // Multiple jobs
+      const jobsList = searchResults.slice(0, 10).map((job, index) => {
+        const companyName = this.sanitizeField(job.company) || 'Company';
+        return `${index + 1}. **${job.job_title || 'Position'}** at ${companyName}`;
+      }).join('\n');
+      
+      return `I found ${resultCount} ${filters.categoryName || ''} jobs for you:\n\n${jobsList}\n\nWhich position interests you most? I can give you full details about any of these jobs!`;
     }
-
-    const response = await this.llm.invoke(prompt);
-    const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-
-    return content.trim();
-
-  } catch (error) {
-    console.error('Error generating AI response:', error);
   }
-}
-
-getFallbackResponse(searchResults, filters) {
-  if (searchResults.length === 0) {
-    return `I couldn't find any **${filters.categoryName || ''} jobs** matching your criteria right now. Don't worry though! Try asking for a different type of work, or check back later as new opportunities are added regularly! 😊`;
-  }
-
-  if (searchResults.length === 1) {
-    const job = searchResults[0];
-    const companyName = this.sanitizeField(job.company) || 'Company';
-    return `Great! I found this opportunity for you:
-
-**${job.job_title || 'Position'}** at **${companyName}** (${job.employment_type || 'Type not specified'})  
-
-Would you like to know more details about this position?`;
-  }
-
-  // Use actual company names in the fallback response
-  return `Excellent! I found some great opportunities for you! 😊
-
-Here are ${searchResults.length} position${searchResults.length > 1 ? 's' : ''} that might be perfect:
-
-${searchResults.slice(0, 10).map((job, index) => {
-  const companyName = this.sanitizeField(job.company) || 'Company';
-  return `${index + 1}. **${job.job_title || 'Position'}** at ${companyName}`;
-}).join('\n')}
-
-Which position interests you most? I can give you full details about any of these jobs!`;
-}
 
   async performSearch(categoryId = null, excludeCategories = []) {
     let results = [];
@@ -597,6 +606,50 @@ Which position interests you most? I can give you full details about any of thes
         employmentType: this.filters.employmentType,
         location: this.filters.location
       });
+      
+      console.log(`📊 JobSeekerAgent: API returned ${results.length} jobs for category_id=${categoryId}`);
+      
+      // DEBUG: Log first few jobs to see their structure
+      if (results.length > 0) {
+        console.log('Sample job data:', {
+          category_id: results[0].category_id,
+          category_name: results[0].category_name,
+          job_title: results[0].job_title
+        });
+      } else {
+        // If no results from API with category filter, try getting all jobs and filter by category name
+        console.log('⚠️ No jobs from API with category_id filter, trying fallback with category name match');
+        const allJobs = await this.getAvailableJobs({
+          employmentType: this.filters.employmentType,
+          location: this.filters.location
+        });
+        
+        console.log(`📊 Total jobs in database: ${allJobs.length}`);
+        
+        const categoryName = this.getCategoryName(categoryId);
+        console.log(`🔍 Filtering by category name: ${categoryName}`);
+        
+        // Try matching by category name instead
+        results = allJobs.filter(job => {
+          const jobCategoryName = (job.category_name || '').toLowerCase().trim();
+          const targetCategoryName = (categoryName || '').toLowerCase().trim();
+          
+          // Try exact match first
+          if (jobCategoryName === targetCategoryName) return true;
+          
+          // Try partial match
+          if (jobCategoryName.includes(targetCategoryName) || targetCategoryName.includes(jobCategoryName)) return true;
+          
+          // Try matching job_title if category_name is not available
+          const jobTitle = (job.job_title || '').toLowerCase().trim();
+          if (jobTitle.includes(targetCategoryName) || targetCategoryName.includes(jobTitle)) return true;
+          
+          return false;
+        });
+        
+        console.log(`📊 After category name filtering: ${results.length} jobs`);
+      }
+      
       results = this.filterJobs(results, categoryId);
     } else {
       results = await this.getAvailableJobs({
@@ -676,9 +729,31 @@ Which position interests you most? I can give you full details about any of thes
 
       const lowerMsg = userMessage.toLowerCase().trim();
 
-      const shouldHandle = await this.shouldHandleQuery(userMessage);
-      if (!shouldHandle) {
-        console.log('[JobSeekerAgent] Query rejected by LLM analysis');
+      // Check if this is an employer query and handle it properly
+      const shouldHandleResult = await this.shouldHandleQuery(userMessage);
+      
+      if (!shouldHandleResult.shouldHandle) {
+        console.log('[JobSeekerAgent] Query rejected by LLM analysis:', shouldHandleResult.reason);
+        
+        // Return a clear message that this is for job seekers only
+        return {
+          type: 'employer_query_rejected',
+          message: `I'm here to help job seekers find employment opportunities. For employer services like hiring talent or posting jobs, please use our employer portal or contact our business team directly.\n\nIf you're looking for a job, I'd be happy to help you search for available positions! What type of work are you interested in?`,
+          code: 'EMPLOYER_QUERY'
+        };
+      }
+
+      // If it's not a job search query but should be handled, return null to let general chat handle it
+      const isJobSearchQuery = lowerMsg.includes('job') || 
+                              lowerMsg.includes('work') || 
+                              lowerMsg.includes('position') || 
+                              lowerMsg.includes('employment') ||
+                              lowerMsg.includes('career') ||
+                              lowerMsg.includes('vacancy') ||
+                              this.hasActiveSearch;
+
+      if (!isJobSearchQuery) {
+        console.log('[JobSeekerAgent] Not a job search query, letting general chat handle:', userMessage);
         return null;
       }
 
@@ -766,10 +841,61 @@ Which position interests you most? I can give you full details about any of thes
       }
 
       if (this.categories.length === 0) {
-        return null;
+        return {
+          type: 'error',
+          message: 'Currently unable to load job categories. Please try again later.',
+          code: 'CATEGORIES_UNAVAILABLE'
+        };
+      }
+
+      // CRITICAL FIX: If awaiting category selection, try to match user input first
+      if (this.conversationContext.awaitingCategorySelection) {
+        console.log('[processMessage] Awaiting category selection, attempting to match:', userMessage);
+        const matchedCategory = this.matchUserInputToCategory(userMessage);
+        
+        if (matchedCategory) {
+          console.log('[processMessage] Category matched! ID:', matchedCategory);
+          // Found a match - proceed with search
+          this.conversationContext.awaitingCategorySelection = false;
+          this.resetSearchState();
+          
+          const results = await this.performSearch(matchedCategory);
+          this.lastSearchResults = results;
+          this.hasActiveSearch = true;
+          this.conversationContext.lastQuery = userMessage;
+          
+          const categoryName = this.getCategoryName(matchedCategory);
+          
+          const aiResponse = await this.generateAIResponse(
+            userMessage,
+            results,
+            { category: matchedCategory, categoryName: categoryName },
+            { intentType: 'specific_category' }
+          );
+
+          const formattedData = results.slice(0, 20).map(job => this.formatJobForCard(job));
+
+          return {
+            type: 'results',
+            data: formattedData,
+            jobs: formattedData,
+            message: aiResponse,
+            hasMoreResults: results.length > 20
+          };
+        } else {
+          console.log('[processMessage] No category match found for:', userMessage);
+          // No match found - show clarification again
+          return {
+            type: 'clarification',
+            message: `I couldn't find that category. Let me show you what's available! 😊\n\nPlease choose from these job categories:\n\n${this.categories.slice(0, 10).map((cat, idx) => `${idx + 1}. **${cat.name}**`).join('\n')}\n\nJust type the name or number of the category you're interested in!`,
+            data: this.categories
+          };
+        }
       }
 
       const extractedFilters = await this.extractFiltersFromQuery(userMessage);
+      
+      console.log('[processMessage] Extracted filters:', extractedFilters);
 
       if (extractedFilters.intentType === 'general_availability' || extractedFilters.intentType === 'list_all') {
         this.resetSearchState();
@@ -818,52 +944,49 @@ Which position interests you most? I can give you full details about any of thes
         };
       }
 
-      if (extractedFilters.intentType === 'job_search' && !extractedFilters.category && extractedFilters.intentType !== 'other_jobs') {
-        if (this.conversationContext.awaitingCategorySelection) {
-          const matchedCategory = this.matchUserInputToCategory(userMessage);
-          if (matchedCategory) {
-            extractedFilters.category = matchedCategory;
-            extractedFilters.intentType = 'specific_category';
-            this.conversationContext.awaitingCategorySelection = false;
-          } else {
-            return {
-              type: 'clarification',
-              message: `No worries! Let me help you find the perfect job! 😊\n\nWhat type of work interests you? Here are some popular options:\n\n• **Construction** - Building, carpentry, masonry\n• **Hospitality** - Hotels, restaurants, customer service\n• **Healthcare** - Medical, nursing, caregiving\n• **Security** - Guard positions, protection services\n• **Cleaning** - Housekeeping, janitorial work\n• **Driving** - Transport, delivery, taxi services\n\nJust tell me what you enjoy doing, and I'll search our database for matching opportunities!`,
-              data: this.categories
-            };
-          }
+      // CRITICAL FIX: For specific_category intent, if LLM didn't extract categoryId, try manual matching
+      if (extractedFilters.intentType === 'specific_category' && !extractedFilters.category) {
+        console.log('[processMessage] specific_category but no categoryId, trying manual match');
+        const matchedCategory = this.matchUserInputToCategory(userMessage);
+        
+        if (matchedCategory) {
+          console.log('[processMessage] Manual match found! ID:', matchedCategory);
+          extractedFilters.category = matchedCategory;
+          extractedFilters.categoryName = this.getCategoryName(matchedCategory);
         } else {
-          this.conversationContext.awaitingCategorySelection = true;
-          this.conversationContext.inJobSearchFlow = true;
-          
-          const popularCategories = this.categories.slice(0, 20);
-          const remainingCount = this.categories.length - 20;
-          
-          const categoriesList = popularCategories
+          console.log('[processMessage] No manual match found');
+          const categoriesList = this.categories.slice(0, 8)
             .map((cat, idx) => `${idx + 1}. **${cat.name}**`)
             .join('\n');
           
           return {
             type: 'clarification',
-            message: `I'd love to help you find the perfect job! 😊\n\nWhat type of work interests you? Here are some popular categories:\n\n${categoriesList}${remainingCount > 0 ? `\n\n...and ${remainingCount} more categories available!` : ''}\n\nJust tell me what you enjoy doing - like "accounting", "construction", or "hospitality" - and I'll search our database for matching opportunities!`,
+            message: `I searched for "${userMessage}" but couldn't find that exact category. 😊\n\nHere are the job categories we have:\n\n${categoriesList}\n\nWhich of these interests you? Or I can show you all available jobs!`,
             data: this.categories
           };
         }
       }
 
-      if (extractedFilters.intentType === 'specific_category' && !extractedFilters.category) {
-        const categoriesList = this.categories.slice(0, 8)
+      if (extractedFilters.intentType === 'job_search' && !extractedFilters.category) {
+        this.conversationContext.awaitingCategorySelection = true;
+        this.conversationContext.inJobSearchFlow = true;
+        
+        const popularCategories = this.categories.slice(0, 20);
+        const remainingCount = this.categories.length - 20;
+        
+        const categoriesList = popularCategories
           .map((cat, idx) => `${idx + 1}. **${cat.name}**`)
           .join('\n');
         
         return {
           type: 'clarification',
-          message: `I searched for "${userMessage}" jobs but couldn't find that specific category in our database. 😊\n\nHere are the job categories we currently have:\n\n${categoriesList}\n\nWhich of these interests you? Or I can show you all available jobs!`,
+          message: `I'd love to help you find the perfect job! 😊\n\nWhat type of work interests you? Here are some popular categories:\n\n${categoriesList}${remainingCount > 0 ? `\n\n...and ${remainingCount} more categories available!` : ''}\n\nJust tell me what you enjoy doing - like "accounting", "construction", or "hospitality" - and I'll search our database for matching opportunities!`,
           data: this.categories
         };
       }
 
       if (!extractedFilters.category && extractedFilters.intentType !== 'other_jobs' && extractedFilters.intentType !== 'job_search' && extractedFilters.intentType !== 'specific_category') {
+        // If it's not a clear job search query, let general chat handle it
         return null;
       }
 
@@ -914,7 +1037,19 @@ Which position interests you most? I can give you full details about any of thes
         };
       }
       
-      return null;
+      if (error instanceof APIError) {
+        return {
+          type: 'error',
+          message: `Unable to search for jobs at the moment: ${error.message}`,
+          code: error.code
+        };
+      }
+      
+      return {
+        type: 'error',
+        message: 'An unexpected error occurred while processing your request. Please try again.',
+        code: 'UNKNOWN_ERROR'
+      };
     }
   }
 

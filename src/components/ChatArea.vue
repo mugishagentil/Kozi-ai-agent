@@ -33,11 +33,7 @@
         <!-- Bot messages: keep wrapper for avatar alignment -->
         <template v-if="message.sender !== 'user'">
           <div class="message-avatar">
-            <img
-              :src="botLogo"
-              alt="Kozi AI"
-              class="bot-logo"
-            />
+            <div class="ai-text">AI</div>
           </div>
           <div class="message-content">
             <div
@@ -142,10 +138,6 @@ onUnmounted(() => {
     window._themeObserver.disconnect()
     delete window._themeObserver
   }
-})
-
-const botLogo = computed(() => {
-  return '/logo.png'
 })
 
 watch(
@@ -273,7 +265,6 @@ const handleSuggestionClick = (message) => {
     return {
       chatContainer,
       isDarkMode,
-      botLogo,
       showWelcomeScreen,
       welcomeMessage,
       suggestionCards,
@@ -350,7 +341,7 @@ const handleSuggestionClick = (message) => {
   display: flex;
   gap: 0.6rem;
   margin: 0.9rem 0;
-  align-items: center; /* vertically center avatar with bubble */
+  align-items: flex-start; /* Changed to flex-start for better streaming alignment */
 }
 .message.user-message { flex-direction: row-reverse; }
 .message-avatar {
@@ -364,10 +355,18 @@ const handleSuggestionClick = (message) => {
   color: #6b7280;
   flex-shrink: 0;
   box-shadow: 0 4px 12px rgba(0,0,0,.06);
+  font-weight: 600;
+  font-size: 0.85rem;
 }
-.bot-logo { width: 28px; height: 28px; }
+.ai-text {
+  color: #EA60A6;
+  font-weight: 700;
+}
 
-.message-content { max-width: 760px; }
+.message-content { 
+  max-width: 760px; 
+  min-height: 20px; /* Reduced minimum height for streaming state */
+}
 .bot-message .message-content { margin-right: auto; }
 .user-message .message-content { margin-left: auto; }
 
@@ -381,7 +380,20 @@ const handleSuggestionClick = (message) => {
   border-radius: 18px;
   line-height: 1.55;
   font-size: 0.98rem;
+  transition: all 0.2s ease-in-out;
 }
+
+/* Reduced size for streaming AI responses */
+.message.streaming .message-content {
+  transform: scale(0.95);
+  transform-origin: left top;
+}
+
+.message.streaming .formatted-content {
+  padding: 0.4rem 0.7rem; /* Reduced padding during streaming */
+  min-height: 30px; /* Smaller minimum height */
+}
+
 .user-message .message-text {
   background: linear-gradient(135deg, #E41E79 0%, #C0126E 100%) !important;
   color: #ffffff !important;
@@ -404,10 +416,18 @@ const handleSuggestionClick = (message) => {
 .bot-message { justify-content: flex-start; }
 .user-message { justify-content: flex-end; }
 
-/* Typing */
-.typing-indicator { display: flex; gap: 4px; margin-top: 6px; }
+/* Typing - Made smaller */
+.typing-indicator { 
+  display: flex; 
+  gap: 3px; 
+  margin-top: 4px; 
+  padding: 2px 0;
+}
 .typing-dot {
-  width: 6px; height: 6px; border-radius: 50%; background: #9ca3af;
+  width: 4px; 
+  height: 4px; 
+  border-radius: 50%; 
+  background: #9ca3af;
   animation: blink 1.2s infinite ease-in-out;
 }
 .typing-dot:nth-child(2){ animation-delay: .2s }
@@ -433,6 +453,8 @@ body.dark .bot-message .formatted-content {
   padding: 0.3rem 0 0.3rem 0;
 }
 body.dark .user-message .message-text { background: linear-gradient(135deg, #c73e8a 0%, #a93272 100%); border-color: transparent; }
+body.dark .message-avatar { background: #1f2937; }
+body.dark .ai-text { color: #EA60A6; }
 
 /* Job Cards */
 .job-cards-container {
@@ -492,7 +514,7 @@ body.dark .user-message .message-text { background: linear-gradient(135deg, #c73
   }
   
   .message-content { max-width: 100%; }
-  .message-avatar { width: 36px; height: 36px; }
+  .message-avatar { width: 36px; height: 36px; font-size: 0.75rem; }
   .bot-message .message-avatar { margin-right: 10px; }
   .user-message .message-avatar { margin-left: 10px; }
   .message-text, .formatted-content { padding: 0.6rem 0.8rem; border-radius: 18px; }
@@ -520,6 +542,12 @@ body.dark .user-message .message-text { background: linear-gradient(135deg, #c73
     max-width: 100%;
   }
   
+  /* Mobile streaming state */
+  .message.streaming .formatted-content {
+    padding: 0.3rem 0.6rem !important;
+    min-height: 25px;
+  }
+  
   .bot-message {
     display: flex;
     width: 100%;
@@ -529,6 +557,17 @@ body.dark .user-message .message-text { background: linear-gradient(135deg, #c73
   .job-cards-grid {
     grid-template-columns: 1fr;
     gap: 0.75rem;
+  }
+
+  /* Mobile typing indicator */
+  .typing-indicator {
+    gap: 2px;
+    margin-top: 3px;
+  }
+  
+  .typing-dot {
+    width: 3px;
+    height: 3px;
   }
 }
 

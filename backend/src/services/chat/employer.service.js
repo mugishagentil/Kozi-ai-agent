@@ -187,8 +187,6 @@ async function chat(req, res) {
       res.end();
       return;
     }
-
-    // Fallback to general chat if agent returns null
     if (agentResult === null) {
       await handleOpenAIChat(session, latestMessage, isFirstUserMessage, res);
       return;

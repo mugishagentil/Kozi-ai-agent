@@ -191,11 +191,7 @@ const suggestionCards = computed(() => {
         text: 'Payment Reminders',
         msg: 'Show me upcoming salary payments'
       },
-      {
-        icon: 'fas fa-database',
-        text: 'Database Query',
-        msg: 'Help me query the database for job seekers and employers'
-      },
+
       {
         icon: 'fas fa-envelope',
         text: 'Gmail Support',

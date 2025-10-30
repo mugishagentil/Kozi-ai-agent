@@ -17,9 +17,12 @@ function getAgentForSession(sessionId, apiToken = null) {
     agent.setSessionId(sessionId);
     agentInstances.set(sessionId, agent);
   } else if (apiToken) {
-    // Update token if it's provided and agent already exists
     const agent = agentInstances.get(sessionId);
-    agent.setApiToken(apiToken);
+    try {
+      agent.setApiToken(apiToken);
+    } catch (err) {
+      console.warn('Failed to set API token on existing agent:', err.message);
+    }
   }
   return agentInstances.get(sessionId);
 }
@@ -32,7 +35,6 @@ async function newChat(req, res) {
   try {
     const { users_id, firstMessage } = req.body;
     
-    // Extract API token from headers
     const apiToken = req.headers.authorization?.replace('Bearer ', '') || 
                      req.headers['x-api-token'];
 
@@ -68,10 +70,9 @@ async function newChat(req, res) {
 
 async function chat(req, res) {
   try {
-    const { sessionId, message, isFirstUserMessage } = req.body;
+    const { sessionId, message } = req.body;
     const action = req.query.action;
     
-    // Extract API token from headers
     const apiToken = req.headers.authorization?.replace('Bearer ', '') || 
                      req.headers['x-api-token'];
 
@@ -127,7 +128,7 @@ async function chat(req, res) {
       },
     });
 
-    // If this is the first message and no title exists, generate one
+    // Generate title if needed
     if (!session.title || session.title === 'New Chat') {
       generateChatTitle(latestMessage)
         .then(async (title) => {
@@ -146,15 +147,26 @@ async function chat(req, res) {
 
     setupSSEHeaders(res);
 
+    // Get conversation history for context
+    const conversationHistory = await prisma.chatMessage.findMany({
+      where: { sessionId: Number(sessionId) },
+      orderBy: { createdAt: 'asc' },
+      take: 10,
+    });
+
+    const historyForAgent = conversationHistory.map(m => ({
+      role: m.role,
+      content: m.content
+    }));
+
     // Get or create agent with API token
     const agent = getAgentForSession(Number(sessionId), apiToken);
     
-    // Try job agent first
+    // Try employer agent first with conversation history
     let agentResult;
     try {
-      agentResult = await agent.processMessage(latestMessage);
+      agentResult = await agent.processMessage(latestMessage, historyForAgent);
     } catch (error) {
-      // Handle authentication errors from the agent
       if (error.code === 'AUTH_ERROR' || error.code === 'NO_TOKEN') {
         res.write(`data: ${JSON.stringify({ 
           content: 'Your session has expired. Please refresh the page and try again.',
@@ -168,7 +180,28 @@ async function chat(req, res) {
       throw error;
     }
 
-    // Handle error responses from agent
+    // If agent returned null, it doesn't want to handle - use general chat
+    if (agentResult === null) {
+      await handleOpenAIChat(session, latestMessage, res);
+      return;
+    }
+
+    // Handle clarification responses (no candidates, just asking for more info)
+    if (agentResult && agentResult.type === 'clarification') {
+      await prisma.chatMessage.create({
+        data: { 
+          sessionId: Number(sessionId), 
+          role: 'assistant', 
+          content: agentResult.message 
+        },
+      });
+
+      const responseContent = agentResult.message;
+      await streamResponse(res, responseContent);
+      return;
+    }
+
+    // Handle error responses
     if (agentResult && agentResult.type === 'error') {
       await prisma.chatMessage.create({
         data: { 
@@ -187,94 +220,11 @@ async function chat(req, res) {
       res.end();
       return;
     }
-    if (agentResult === null) {
-      await handleOpenAIChat(session, latestMessage, isFirstUserMessage, res);
-      return;
-    }
 
-    // Handle candidate_profile response type
-    if (agentResult && agentResult.type === 'candidate_profile') {
-      // Save to database
-      await prisma.chatMessage.create({
-        data: { 
-          sessionId: Number(sessionId), 
-          role: 'assistant', 
-          content: agentResult.message 
-        },
-      });
-
-      // Stream the candidate profile
-      const responseContent = agentResult.message;
-      const chunks = responseContent.match(/[^\n]+\n?|\n/g) || [responseContent];
-      
-      for (const chunk of chunks) {
-        const words = chunk.split(' ');
-        for (let i = 0; i < words.length; i++) {
-          const word = words[i];
-          const toSend = i < words.length - 1 ? word + ' ' : word;
-          
-          try {
-            res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
-          } catch (writeError) {
-            if (writeError.code === 'EPIPE') {
-              console.log('Client disconnected, stopping stream');
-              return;
-            }
-            throw writeError;
-          }
-          
-          await new Promise((resolve) => setTimeout(resolve, 5));
-        }
-      }
-
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
-      return;
-    }
-
-    // Handle clarification requests
-    if (agentResult && agentResult.type === 'clarification') {
-      await prisma.chatMessage.create({
-        data: { 
-          sessionId: Number(sessionId), 
-          role: 'assistant', 
-          content: agentResult.message 
-        },
-      });
-
-      const responseContent = agentResult.message;
-      const chunks = responseContent.match(/[^\n]+\n?|\n/g) || [responseContent];
-      
-      for (const chunk of chunks) {
-        const words = chunk.split(' ');
-        for (let i = 0; i < words.length; i++) {
-          const word = words[i];
-          const toSend = i < words.length - 1 ? word + ' ' : word;
-          
-          try {
-            res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
-          } catch (writeError) {
-            if (writeError.code === 'EPIPE') {
-              console.log('Client disconnected, stopping stream');
-              return;
-            }
-            throw writeError;
-          }
-          
-          await new Promise((resolve) => setTimeout(resolve, 5));
-        }
-      }
-
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
-      return;
-    }
-
-    // Handle agent response with streaming
-    if (agentResult && agentResult.message) {
+    // Handle results with candidates
+    if (agentResult && agentResult.type === 'results') {
       const responseContent = agentResult.message;
 
-      // Save to database
       await prisma.chatMessage.create({
         data: { 
           sessionId: Number(sessionId), 
@@ -283,45 +233,18 @@ async function chat(req, res) {
         },
       });
 
-      // Send candidate data first if available (so cards appear quickly)
-      if (agentResult.candidates && Array.isArray(agentResult.candidates)) {
-        console.log('Sending candidate data:', agentResult.candidates.length);
+      // Send candidate data first if available
+      if (agentResult.candidates && Array.isArray(agentResult.candidates) && agentResult.candidates.length > 0) {
         res.write(`data: ${JSON.stringify({ candidates: agentResult.candidates })}\n\n`);
       }
 
-      // Stream response with faster typing effect
-      const chunks = responseContent.match(/[^\n]+\n?|\n/g) || [responseContent];
-      
-      for (const chunk of chunks) {
-        // Stream each line/chunk
-        const words = chunk.split(' ');
-        for (let i = 0; i < words.length; i++) {
-          const word = words[i];
-          const toSend = i < words.length - 1 ? word + ' ' : word;
-          
-          try {
-            res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
-          } catch (writeError) {
-            // Handle EPIPE errors gracefully
-            if (writeError.code === 'EPIPE') {
-              console.log('Client disconnected, stopping stream');
-              return;
-            }
-            throw writeError;
-          }
-          
-          // Faster delay for better performance (5ms instead of 20ms)
-          await new Promise((resolve) => setTimeout(resolve, 5));
-        }
-      }
-
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
+      // Stream the response message
+      await streamResponse(res, responseContent);
       return;
     }
 
-    // Final fallback
-    await handleOpenAIChat(session, latestMessage, isFirstUserMessage, res);
+    // Fallback to general chat
+    await handleOpenAIChat(session, latestMessage, res);
     
   } catch (err) {
     console.error('POST /employer/chat error:', err);
@@ -330,7 +253,7 @@ async function chat(req, res) {
       res.status(500).json({ error: 'Chat service error' });
     } else {
       res.write(`data: ${JSON.stringify({ 
-        content: 'I apologize, but I encountered an error. Please try again or rephrase your question.'
+        content: 'I apologize, but I encountered an error. Please try again.'
       })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
@@ -338,14 +261,40 @@ async function chat(req, res) {
   }
 }
 
+async function streamResponse(res, content) {
+  const chunks = content.match(/[^\n]+\n?|\n/g) || [content];
+  
+  for (const chunk of chunks) {
+    const words = chunk.split(' ');
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const toSend = i < words.length - 1 ? word + ' ' : word;
+      
+      try {
+        res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
+      } catch (writeError) {
+        if (writeError.code === 'EPIPE') {
+          console.log('Client disconnected, stopping stream');
+          return;
+        }
+        throw writeError;
+      }
+      
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+
+  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  res.end();
+}
+
 const MAX_WEBSITE_CONTEXT_CHARS = 50000;
 
-async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res) {
+async function handleOpenAIChat(session, latestMessage, res) {
   const sessionId = session.id;
   const isSmallTalk = latestMessage.trim().split(/\s+/).length <= 5;
   let websiteContext = '';
   let dbContext = '';
-  let contextSource = 'NO_CONTEXT';
 
   if (!isSmallTalk) {
     const [websiteResult, dbResult] = await Promise.allSettled([
@@ -357,18 +306,15 @@ async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res)
       websiteContext = websiteResult.value.length > MAX_WEBSITE_CONTEXT_CHARS
         ? websiteResult.value.slice(0, MAX_WEBSITE_CONTEXT_CHARS)
         : websiteResult.value;
-      contextSource = 'WEBSITE';
     }
 
     if (dbResult.status === 'fulfilled' && dbResult.value.length > 0) {
       dbContext = dbResult.value
         .map((d, i) => `### Document ${i + 1}: ${d.title}\n${d.content}`)
         .join('\n\n');
-      contextSource = 'DATABASE';
     }
   }
 
-  // KEY DIFFERENCE: Use employer prompt instead of employee
   const systemPromptContent = PROMPT_TEMPLATES.employer(websiteContext, dbContext);
 
   const previousMessages = await prisma.chatMessage.findMany({
@@ -483,18 +429,26 @@ async function deleteAllChatSessions(req, res) {
     }
 
     const sessions = await prisma.chatSession.findMany({
-      where: { users_id: Number(users_id) },
+      where: { users_id: Number(users_id), role_type: 'employer' },
       select: { id: true },
     });
 
     sessions.forEach((s) => cleanupAgent(s.id));
 
     await prisma.chatMessage.deleteMany({
-      where: { session: { users_id: Number(users_id) } },
+      where: { 
+        session: { 
+          users_id: Number(users_id),
+          role_type: 'employer'
+        } 
+      },
     });
 
     await prisma.chatSession.deleteMany({
-      where: { users_id: Number(users_id) },
+      where: { 
+        users_id: Number(users_id),
+        role_type: 'employer'
+      },
     });
 
     res.json({

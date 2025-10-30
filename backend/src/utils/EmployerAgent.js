@@ -1,5 +1,5 @@
-// employerAgent.js - Specialized agent for EMPLOYERS ONLY
 const { ChatOpenAI } = require('@langchain/openai');
+const qs = require('querystring');
 
 class EmployerAgent {
   constructor(modelName = process.env.OPENAI_CHAT_MODEL || 'gpt-4-turbo', apiToken = null) {
@@ -8,14 +8,10 @@ class EmployerAgent {
     this.validateEnvironment();
     this.initializeLLM(modelName);
     this.resetState();
-    this.loadCategories().catch(error => {
-      console.warn('Initial category load failed:', error.message);
-    });
+    this.loadCategories().catch(error => console.warn('Initial category load failed:', error.message));
   }
 
-  setSessionId(sessionId) {
-    this.sessionId = sessionId;
-  }
+  setSessionId(sessionId) { this.sessionId = sessionId; }
 
   setApiToken(apiToken) {
     if (!apiToken || typeof apiToken !== 'string' || apiToken.trim() === '') {
@@ -27,7 +23,6 @@ class EmployerAgent {
   validateEnvironment() {
     this.JOB_CATEGORIES_API = process.env.JOB_CATEGORIES_API;
     this.JOB_SEEKERS_BY_CATEGORY_API = process.env.JOB_SEEKERS_BY_CATEGORY_API;
-
     if (!this.JOB_CATEGORIES_API || !this.JOB_SEEKERS_BY_CATEGORY_API) {
       throw new Error('Missing required environment variables for candidate search');
     }
@@ -36,8 +31,8 @@ class EmployerAgent {
   initializeLLM(modelName) {
     this.llm = new ChatOpenAI({
       model: modelName,
-      temperature: 0.3,
-      maxTokens: 500,
+      temperature: 0.7,
+      maxTokens: 800,
     });
   }
 
@@ -46,243 +41,569 @@ class EmployerAgent {
     this.categories = [];
     this.categoriesLoaded = false;
     this.lastSearchResults = [];
+    this.allMatchedCandidates = [];
+    this.totalMatchedCount = 0;
     this.currentOffset = 0;
     this.hasActiveSearch = false;
     this.conversationContext = {
       lastQuery: null,
+      lastFilters: null,
       showedSummary: false,
       askedForDetails: false,
       selectedCandidateIndex: null,
+      lastSearchType: null,
+      lastEmployerIntent: false,
     };
   }
 
   async fetchWithToken(url, options = {}) {
-    if (!this.API_TOKEN) {
-      throw new Error('API token not provided');
-    }
-
-    const response = await fetch(url, {
-      method: 'GET',
+    if (!this.API_TOKEN) throw new Error('API token not provided');
+    const res = await fetch(url, {
+      method: options.method || 'GET',
       headers: {
         Authorization: `Bearer ${this.API_TOKEN.trim()}`,
         'Content-Type': 'application/json',
-        ...options.headers,
+        ...(options.headers || {}),
       },
-      ...options,
+      body: options.body ? JSON.stringify(options.body) : undefined,
     });
 
-    if (response.status === 401) {
-      throw new Error('Authentication failed');
+    if (res.status === 401) {
+      const err = new Error('Authentication failed');
+      err.code = 'AUTH_ERROR';
+      throw err;
     }
-
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const err = new Error(`Request failed with status ${res.status} ${text}`);
+      err.code = 'FETCH_ERROR';
+      throw err;
     }
-
-    const data = await response.json();
-    return Array.isArray(data) ? data : [];
+    const data = await res.json().catch(() => null);
+    return data;
   }
 
   async getJobCategories() {
-    const categories = await this.fetchWithToken(this.JOB_CATEGORIES_API);
-    return Array.isArray(categories) ? categories : [];
-  }
-
-  async getJobSeekersByCategory(categoryId) {
-    if (!categoryId) throw new Error('Category ID is required');
-    const url = `${this.JOB_SEEKERS_BY_CATEGORY_API.replace(/\/+$/, '')}/${categoryId}`;
-    return await this.fetchWithToken(url);
+    const data = await this.fetchWithToken(this.JOB_CATEGORIES_API);
+    return Array.isArray(data) ? data : [];
   }
 
   async loadCategories() {
     if (this.categoriesLoaded) return;
-    this.categories = await this.getJobCategories();
-    this.categoriesLoaded = true;
+    try {
+      this.categories = await this.getJobCategories();
+      this.categoriesLoaded = true;
+    } catch (err) {
+      console.warn('[EmployerAgent] loadCategories failed:', err.message);
+      this.categories = [];
+      this.categoriesLoaded = false;
+    }
   }
 
-  // Only handle EMPLOYER-specific queries
-  async shouldHandleQuery(userMessage) {
-    console.log('[EmployerAgent] Checking if query is employer-related:', userMessage);
+  findCategoryIdByName(name) {
+    if (!name || !this.categories) return null;
+    const lower = String(name).toLowerCase();
+    const found = this.categories.find(c =>
+      (c.name || '').toLowerCase() === lower || (c.displayName || '').toLowerCase() === lower
+    );
+    return found ? found.id : null;
+  }
 
-    const text = userMessage.toLowerCase().trim();
-
-    // Block any job seeker–type messages immediately
-    const jobSeekerPhrases = [
-      'i need a job', 'find me a job', 'show me jobs', 'available jobs',
-      'any openings', 'apply for', 'submit my cv', 'job application'
+  async shouldHandleQuery(userMessage, conversationHistory = []) {
+    const lower = (userMessage || '').toLowerCase();
+    
+    // Block job seeker queries
+    const jobSeekerIndicators = [
+      'i need a job', 'find me a job', 'looking for work', 
+      'where can i work', 'apply for', 'submit my cv', 
+      'my cv', 'my resume', 'i want to apply', 'hire me',
+      'i am looking for', 'i want a job', 'looking for employment'
     ];
-    if (jobSeekerPhrases.some(p => text.includes(p))) return false;
+    if (jobSeekerIndicators.some(p => lower.includes(p))) {
+      this.hasActiveSearch = false;
+      this.conversationContext.lastEmployerIntent = false;
+      return false;
+    }
+
+    // Build conversation context
+    const recentHistory = conversationHistory.slice(-6).map(msg => 
+      `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content.substring(0, 200)}`
+    ).join('\n');
+
+    const prompt = `
+You are a strict classifier for an EMPLOYER candidate search agent.
+
+CRITICAL RULES:
+1. ONLY handle messages with SPECIFIC hiring requirements (role, location, skills, etc.)
+2. General questions like "I want to hire talent" or "How do I search?" should go to general chat
+3. Follow-up requests (yes/more/show more) ONLY if there's an active search session
+
+Recent conversation:
+${recentHistory || 'No previous context'}
+
+Current message: """${userMessage}"""
+
+Previous employer intent: ${this.conversationContext.lastEmployerIntent}
+Has active search: ${this.hasActiveSearch}
+
+Examples that SHOULD be handled by this agent:
+- "Find me a driver in Kigali"
+- "I need a software developer with 5 years experience"
+- "Looking for part-time cleaners in the north"
+- "Show me more candidates" (ONLY if hasActiveSearch is true)
+
+Examples that should NOT be handled (send to general chat):
+- "I want to hire a talent" (too vague, no specifics)
+- "How do I search for qualified candidates?" (informational)
+- "What can you help me with?" (general question)
+- "I need someone to work for me" (no specifics)
+
+Return JSON only:
+{
+  "shouldHandle": true|false,
+  "hasSpecificRequirements": true|false,
+  "isFollowUp": true|false,
+  "reason": "brief explanation"
+}
+`;
 
     try {
-      const prompt = `You are analyzing queries for an EMPLOYER assistant. 
-This assistant ONLY helps employers find candidates or post jobs. 
+      const response = await Promise.race([
+        this.llm.invoke(prompt),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 6000))
+      ]);
 
-Query: "${userMessage}"
+      const content = this._extractTextFromLLMResponse(response);
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        this.conversationContext.lastEmployerIntent = false;
+        return false;
+      }
 
-Return JSON:
-{"shouldHandle": true/false, "reason": "brief explanation", "userType": "employer|employee|unclear"}
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      // For follow-ups, check if we have active search
+      if (parsed.isFollowUp) {
+        const shouldHandle = this.hasActiveSearch && this.conversationContext.lastEmployerIntent;
+        if (!shouldHandle) {
+          this.conversationContext.lastEmployerIntent = false;
+        }
+        return shouldHandle;
+      }
+      
+      // Only handle if there are specific requirements
+      const shouldHandle = parsed.shouldHandle === true && parsed.hasSpecificRequirements === true;
+      this.conversationContext.lastEmployerIntent = shouldHandle;
+      return shouldHandle;
+      
+    } catch (err) {
+      console.warn('[EmployerAgent] shouldHandleQuery LLM error:', err.message);
+      this.conversationContext.lastEmployerIntent = false;
+      return false;
+    }
+  }
 
-Only handle if it's clearly from an employer (looking to hire or post jobs).`;
+  async extractFiltersFromQuery(userQuery, conversationHistory = []) {
+    await this.loadCategories();
+    
+    const recentHistory = conversationHistory.slice(-6).map(msg => 
+      `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content.substring(0, 200)}`
+    ).join('\n');
 
+    const categoriesList = this.categories.map(c => `${c.name}`).join(', ');
+
+    const prompt = `
+Extract search filters for candidate search based on the conversation.
+
+Recent conversation:
+${recentHistory || 'No previous context'}
+
+Current message: """${userQuery}"""
+
+Available categories: ${categoriesList}
+
+Return JSON only:
+{
+  "role": "specific role or null",
+  "location": "specific location or null",
+  "employmentType": "full-time | part-time | remote | contract | null",
+  "categoryName": "exact category from list or null",
+  "maxResults": number or null,
+  "isRequestForMore": true|false,
+  "hasAtLeastOneFilter": true|false
+}
+
+Set hasAtLeastOneFilter to true ONLY if at least one of: role, location, employmentType, or categoryName is provided.
+`;
+
+    try {
+      const response = await Promise.race([
+        this.llm.invoke(prompt),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 7000))
+      ]);
+
+      const content = this._extractTextFromLLMResponse(response);
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        if (this.hasActiveSearch && this.conversationContext.lastFilters) {
+          return { ...this.conversationContext.lastFilters, isRequestForMore: true };
+        }
+        return { 
+          role: null, 
+          location: null, 
+          employmentType: null, 
+          categoryId: null, 
+          categoryName: null, 
+          maxResults: null, 
+          isRequestForMore: false,
+          hasAtLeastOneFilter: false 
+        };
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      const categoryName = parsed.categoryName || null;
+      const categoryId = categoryName ? this.findCategoryIdByName(categoryName) : null;
+
+      const filters = {
+        role: parsed.role || null,
+        location: parsed.location || null,
+        employmentType: parsed.employmentType || null,
+        categoryName,
+        categoryId,
+        maxResults: parsed.maxResults || null,
+        isRequestForMore: parsed.isRequestForMore || false,
+        hasAtLeastOneFilter: parsed.hasAtLeastOneFilter || false,
+      };
+
+      if (filters.isRequestForMore && this.conversationContext.lastFilters) {
+        return { ...this.conversationContext.lastFilters, isRequestForMore: true };
+      }
+
+      return filters;
+    } catch (err) {
+      console.warn('[EmployerAgent] extractFiltersFromQuery LLM error:', err.message);
+      
+      if (this.hasActiveSearch && this.conversationContext.lastFilters) {
+        return { ...this.conversationContext.lastFilters, isRequestForMore: true };
+      }
+      
+      return { 
+        role: null, 
+        location: null, 
+        employmentType: null, 
+        categoryId: null, 
+        categoryName: null, 
+        maxResults: null, 
+        isRequestForMore: false,
+        hasAtLeastOneFilter: false 
+      };
+    }
+  }
+
+  async generateResponseMessage(filters, totalFound, showingCount, isLoadMore = false, searchPerformed = true) {
+    let context = '';
+    
+    if (isLoadMore) {
+      const remaining = totalFound - this.currentOffset;
+      context = `You just showed ${showingCount} more candidates. ${remaining > 0 ? `There are ${remaining} more available.` : 'No more candidates available.'}`;
+    } else if (searchPerformed) {
+      context = `Search results: Found ${totalFound} candidates total. Showing ${showingCount}.`;
+      if (filters.role) context += ` Role: ${filters.role}.`;
+      if (filters.location) context += ` Location: ${filters.location}.`;
+      if (filters.employmentType) context += ` Type: ${filters.employmentType}.`;
+    } else {
+      context = `No search performed. Filters are insufficient.`;
+    }
+
+    const prompt = `
+You are a helpful hiring assistant. Generate a natural, conversational response.
+
+Context: ${context}
+
+Guidelines:
+- Be enthusiastic and helpful
+- Keep it concise (2-3 sentences max)
+- If showing results, mention key details naturally
+- If more results available, ask if they want to see more
+- Sound professional but friendly
+
+Generate ONLY the response message, no JSON:
+`;
+
+    try {
       const response = await Promise.race([
         this.llm.invoke(prompt),
         new Promise((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 5000))
       ]);
 
-      const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return false;
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      return parsed.shouldHandle === true && parsed.userType === 'employer';
-    } catch (error) {
-      console.error('[EmployerAgent] Fallback keyword check:', error.message);
-
-      const employerKeywords = [
-        'candidate', 'worker', 'employee', 'staff', 'hire', 'recruit',
-        'find workers', 'find candidates', 'post job', 'post a job', 'looking to hire'
-      ];
-      const isEmployer = employerKeywords.some(k => text.includes(k));
-      return isEmployer; // never respond to "find me a job"
+      return this._extractTextFromLLMResponse(response).trim();
+    } catch (err) {
+      console.warn('[EmployerAgent] generateResponseMessage error:', err.message);
+      // Fallback to simple message
+      if (isLoadMore) {
+        return `Here ${showingCount === 1 ? 'is' : 'are'} ${showingCount} more candidate${showingCount > 1 ? 's' : ''}.`;
+      }
+      return `I found ${totalFound} candidate${totalFound > 1 ? 's' : ''} matching your criteria.`;
     }
   }
 
-  async extractFiltersFromQuery(userQuery) {
-    if (!this.categoriesLoaded) await this.loadCategories();
+  async generateClarificationMessage(userQuery, filters) {
+    const prompt = `
+You are a helpful hiring assistant. The user wants to find candidates but hasn't provided enough details.
 
-    const categoryList = this.categories.map(c => `${c.name} (ID: ${c.id})`).join(', ');
+User query: "${userQuery}"
 
-    const prompt = `Extract candidate search parameters for an employer from: "${userQuery}"
+Current filters:
+- Role: ${filters.role || 'not specified'}
+- Location: ${filters.location || 'not specified'}
+- Employment type: ${filters.employmentType || 'not specified'}
 
-Categories: ${categoryList}
+Generate a friendly message (2-3 sentences) asking for more specific information about what they're looking for. 
+Be conversational and helpful. Suggest what details would be helpful (role, location, experience level, etc.).
 
-Return JSON:
-{
-  "matchedCategory": "exact category name or null",
-  "categoryId": "ID number or null",
-  "intentType": "candidate_search|specific_category|candidate_details|post_job|general_inquiry"
-}`;
-
-    const response = await this.llm.invoke(prompt);
-    const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return { intentType: 'unknown' };
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    return {
-      category: parsed.categoryId || null,
-      categoryName: parsed.matchedCategory || null,
-      intentType: parsed.intentType || 'unknown'
-    };
-  }
-
-  async performSearch(categoryId = null) {
-    console.log('🔍 EmployerAgent: Searching for candidates, category:', categoryId);
+Generate ONLY the response message, no JSON:
+`;
 
     try {
-      if (!categoryId) {
-        const allCandidates = [];
-        for (const category of this.categories) {
-          const candidates = await this.getJobSeekersByCategory(category.id);
-          allCandidates.push(...candidates);
+      const response = await Promise.race([
+        this.llm.invoke(prompt),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 5000))
+      ]);
+
+      return this._extractTextFromLLMResponse(response).trim();
+    } catch (err) {
+      console.warn('[EmployerAgent] generateClarificationMessage error:', err.message);
+      return `I'd be happy to help you find candidates! Could you tell me more about what you're looking for? For example, what role or position, preferred location, or employment type?`;
+    }
+  }
+
+  async performSearch(filters = {}, isLoadMore = false) {
+    const maxResultsRequested = filters.maxResults ? Number(filters.maxResults) : 6;
+    const maxResults = Math.min(Math.max(1, maxResultsRequested), 50);
+    const batchSize = 6;
+    
+    if (isLoadMore && this.allMatchedCandidates.length > 0) {
+      const nextBatch = this.allMatchedCandidates.slice(
+        this.currentOffset, 
+        this.currentOffset + batchSize
+      );
+      
+      this.currentOffset += batchSize;
+      this.lastSearchResults = nextBatch;
+      
+      return nextBatch.map(c => this.formatCandidateForCard(c));
+    }
+
+    let candidates = [];
+
+    try {
+      if (filters.categoryId) {
+        const qsObj = {};
+        if (filters.location) qsObj.location = filters.location;
+        if (filters.role) qsObj.role = filters.role;
+        if (filters.employmentType) qsObj.employmentType = filters.employmentType;
+        qsObj.limit = 100;
+
+        const q = qs.stringify(qsObj);
+        const url = `${this.JOB_SEEKERS_BY_CATEGORY_API.replace(/\/+$/, '')}/${filters.categoryId}${q ? '?' + q : ''}`;
+        const data = await this.fetchWithToken(url);
+        candidates = Array.isArray(data) ? data : [];
+      } else {
+        for (const cat of this.categories) {
+          try {
+            const url = `${this.JOB_SEEKERS_BY_CATEGORY_API.replace(/\/+$/, '')}/${cat.id}`;
+            const data = await this.fetchWithToken(url);
+            if (Array.isArray(data) && data.length) candidates.push(...data);
+            if (candidates.length >= 100) break;
+          } catch (err) {
+            console.warn(`[EmployerAgent] skipped category ${cat.id}:`, err.message);
+            continue;
+          }
         }
-        return this.rankCandidates(allCandidates).slice(0, 20);
+      }
+    } catch (err) {
+      console.warn('[EmployerAgent] performSearch fetch error:', err.message);
+      candidates = [];
+    }
+
+    if (!Array.isArray(candidates)) candidates = [];
+
+    const filtered = candidates.filter(c => {
+      if (filters.location) {
+        const locLower = String(filters.location).toLowerCase();
+        const candidateLocations = [c.province, c.district, c.city, c.location, c.address]
+          .filter(Boolean).map(x => String(x).toLowerCase());
+        const locMatches = candidateLocations.some(cl => cl.includes(locLower) || locLower.includes(cl));
+        if (!locMatches) return false;
       }
 
-      const candidates = await this.getJobSeekersByCategory(categoryId);
-      return this.rankCandidates(candidates).slice(0, 20);
-    } catch (err) {
-      console.error('Candidate search failed:', err.message);
-      return [];
-    }
+      if (filters.employmentType) {
+        const want = String(filters.employmentType).toLowerCase();
+        const candidateTypes = [c.employment_type, c.availability, c.job_type]
+          .filter(Boolean).map(x => String(x).toLowerCase()).join(' ');
+        if (candidateTypes && !candidateTypes.includes(want)) return false;
+      }
+
+      if (filters.role) {
+        const wantRole = String(filters.role).toLowerCase();
+        const candidateText = [c.title, c.first_name, c.last_name, c.bio, c.skills, c.experience, c.profession, c.summary]
+          .filter(Boolean).map(x => String(x).toLowerCase()).join(' ');
+        if (!candidateText.includes(wantRole)) {
+          if (!candidateText.split(/\s+/).some(t => t.includes(wantRole) || wantRole.includes(t))) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+
+    const ranked = this.rankCandidates(filtered);
+    this.allMatchedCandidates = ranked;
+    this.totalMatchedCount = ranked.length;
+    this.currentOffset = batchSize;
+    
+    const firstBatch = ranked.slice(0, batchSize);
+    this.lastSearchResults = firstBatch;
+    this.hasActiveSearch = ranked.length > 0;
+
+    return firstBatch.map(c => this.formatCandidateForCard(c));
   }
 
   rankCandidates(candidates) {
     return candidates.sort((a, b) => {
-      if (a.verification_badge && !b.verification_badge) return -1;
-      if (!a.verification_badge && b.verification_badge) return 1;
+      if ((a.verification_badge || 0) > (b.verification_badge || 0)) return -1;
+      if ((b.verification_badge || 0) > (a.verification_badge || 0)) return 1;
       return this.calculateProfileCompleteness(b) - this.calculateProfileCompleteness(a);
     });
   }
 
   calculateProfileCompleteness(candidate) {
-    const fields = ['first_name', 'last_name', 'email', 'phone', 'province', 'district', 'image'];
+    const fields = ['first_name', 'last_name', 'bio', 'image', 'skills', 'experience', 'province', 'district'];
     let score = fields.reduce((acc, f) => acc + (candidate[f] ? 1 : 0), 0);
     if (candidate.verification_badge) score += 2;
     return score;
   }
 
-  async processMessage(userMessage) {
+  async processMessage(userMessage, conversationHistory = []) {
     try {
-      if (!this.API_TOKEN) {
-        return { type: 'error', message: 'Please provide a valid API token to continue.', code: 'NO_TOKEN' };
-      }
-
-      const shouldHandle = await this.shouldHandleQuery(userMessage);
+      if (!this.API_TOKEN) throw new Error('API token missing');
+      
+      const shouldHandle = await this.shouldHandleQuery(userMessage, conversationHistory);
       if (!shouldHandle) return null;
 
-      if (!this.categoriesLoaded) await this.loadCategories();
-      const extracted = await this.extractFiltersFromQuery(userMessage);
+      const filters = await this.extractFiltersFromQuery(userMessage, conversationHistory);
+      const isLoadMore = filters.isRequestForMore || false;
+      
+      // If requesting more results from active search
+      if (isLoadMore && this.hasActiveSearch) {
+        const candidates = await this.performSearch(filters, true);
+        const totalFound = this.totalMatchedCount;
+        const showingCount = candidates.length;
 
-      if (extracted.intentType === 'post_job') {
-        return {
-          type: 'clarification',
-          message: `📝 To post a job on Kozi:\n\n1. Open your **Dashboard**\n2. Go to **Add Jobs** → **Add Job**\n3. Fill out job details (title, requirements, etc.)\n4. Submit the job post\n\n💡 Posting jobs is a premium feature — our team will contact you with payment details once submitted.`
-        };
-      }
-
-      if (['candidate_search', 'specific_category'].includes(extracted.intentType)) {
-        const results = await this.performSearch(extracted.category);
-        this.lastSearchResults = results;
-        this.hasActiveSearch = true;
-
-        if (!results.length) {
+        if (showingCount === 0) {
+          this.hasActiveSearch = false;
+          const message = await this.generateResponseMessage(filters, totalFound, 0, true, false);
           return {
-            type: 'results',
+            type: 'clarification',
             data: [],
             candidates: [],
-            message: `😕 I couldn’t find any candidates${extracted.categoryName ? ` in ${extracted.categoryName}` : ''} right now.\n\nWould you like me to check another category or region?`
+            message,
           };
         }
 
-        const msg = `✅ Great news! I found **${results.length} ${extracted.categoryName || ''} candidates** for you.\n\nHere’s what I discovered — let’s check them out together 👇`;
-
+        const message = await this.generateResponseMessage(filters, totalFound, showingCount, true, true);
+        const hasMore = this.currentOffset < totalFound;
+        
         return {
           type: 'results',
-          data: results,
-          candidates: results.map(c => this.formatCandidateForCard(c)),
-          message: msg,
-          searchMode: 'candidates'
+          data: candidates,
+          candidates,
+          message,
+          searchMode: 'candidates',
+          totalFound,
+          showing: showingCount,
+          hasMore,
+          currentOffset: this.currentOffset,
         };
       }
 
-      return null;
-    } catch (error) {
-      console.error('[EmployerAgent] Error processing message:', error);
+      // Check if we have sufficient filters for a search
+      if (!filters.hasAtLeastOneFilter) {
+        // Not enough information to perform search - ask for clarification
+        const clarificationMsg = await this.generateClarificationMessage(userMessage, filters);
+        return {
+          type: 'clarification',
+          message: clarificationMsg,
+          data: [],
+          candidates: [],
+        };
+      }
+
+      // Store filters and perform search
+      this.conversationContext.lastFilters = filters;
+      if (!filters.maxResults) filters.maxResults = 6;
+
+      const candidates = await this.performSearch(filters, false);
+      const totalFound = this.totalMatchedCount;
+      const showingCount = candidates.length;
+
+      if (showingCount === 0) {
+        this.hasActiveSearch = false;
+        const message = await this.generateResponseMessage(filters, 0, 0, false, true);
+        return { 
+          type: 'results', 
+          data: [], 
+          candidates: [], 
+          message 
+        };
+      }
+
+      const message = await this.generateResponseMessage(filters, totalFound, showingCount, false, true);
+      const hasMore = this.currentOffset < totalFound;
+      
+      return {
+        type: 'results',
+        data: candidates,
+        candidates,
+        message,
+        searchMode: 'candidates',
+        totalFound,
+        showing: showingCount,
+        hasMore,
+        currentOffset: this.currentOffset,
+      };
+    } catch (err) {
+      console.error('[EmployerAgent] processMessage error:', err);
+      this.hasActiveSearch = false;
       return {
         type: 'error',
-        message: `⚠️ Sorry, something went wrong while searching. Please try again later.`,
+        message: `Sorry, I encountered an issue while searching. Please try again.`,
+        code: err.code || 'SEARCH_ERROR'
       };
     }
   }
 
   formatCandidateForCard(candidate) {
     return {
-      id: candidate.id || candidate.users_id,
-      users_id: candidate.users_id || candidate.id,
+      id: candidate.id || candidate.users_id || null,
       first_name: candidate.first_name || 'Not specified',
       last_name: candidate.last_name || 'Not specified',
-      email: candidate.email || null,
-      phone: candidate.phone || null,
-      image: candidate.image || null,
-      province: candidate.province || null,
-      district: candidate.district || null,
-      categories_id: candidate.categories_id,
-      verification_badge: candidate.verification_badge || 0,
+      profilePicture: candidate.image || null,
       bio: candidate.bio || null,
-      skills: candidate.skills || null,
-      experience: candidate.experience || null
+      verification_badge: candidate.verification_badge || 0,
     };
+  }
+
+  _extractTextFromLLMResponse(response) {
+    if (!response) return '';
+    if (typeof response === 'string') return response;
+    if (response.text) return String(response.text);
+    if (response.content && typeof response.content === 'string') return response.content;
+    if (response.content && Array.isArray(response.content)) {
+      const arrText = response.content.map(c => c.text || c).join(' ');
+      if (arrText.trim()) return arrText;
+    }
+    return JSON.stringify(response);
   }
 }
 

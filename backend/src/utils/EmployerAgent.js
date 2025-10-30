@@ -1,6 +1,21 @@
 const { ChatOpenAI } = require('@langchain/openai');
 const qs = require('querystring');
 
+class APIError extends Error {
+  constructor(message, code = 'API_ERROR') {
+    super(message);
+    this.name = 'APIError';
+    this.code = code;
+  }
+}
+
+class ValidationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
 class EmployerAgent {
   constructor(modelName = process.env.OPENAI_CHAT_MODEL || 'gpt-4-turbo', apiToken = null) {
     this.sessionId = null;
@@ -15,7 +30,7 @@ class EmployerAgent {
 
   setApiToken(apiToken) {
     if (!apiToken || typeof apiToken !== 'string' || apiToken.trim() === '') {
-      throw new Error('Invalid API token provided');
+      throw new ValidationError('Invalid API token provided');
     }
     this.API_TOKEN = apiToken.trim();
   }
@@ -23,17 +38,35 @@ class EmployerAgent {
   validateEnvironment() {
     this.JOB_CATEGORIES_API = process.env.JOB_CATEGORIES_API;
     this.JOB_SEEKERS_BY_CATEGORY_API = process.env.JOB_SEEKERS_BY_CATEGORY_API;
-    if (!this.JOB_CATEGORIES_API || !this.JOB_SEEKERS_BY_CATEGORY_API) {
-      throw new Error('Missing required environment variables for candidate search');
+
+    const requiredVars = {
+      'JOB_CATEGORIES_API': this.JOB_CATEGORIES_API,
+      'JOB_SEEKERS_BY_CATEGORY_API': this.JOB_SEEKERS_BY_CATEGORY_API
+    };
+
+    const missingVars = Object.entries(requiredVars)
+      .filter(([_, value]) => !value)
+      .map(([key]) => key);
+
+    if (missingVars.length > 0) {
+      throw new ValidationError(`Missing required environment variables: ${missingVars.join(', ')}`);
+    }
+
+    if (this.API_TOKEN && (typeof this.API_TOKEN !== 'string' || this.API_TOKEN.trim() === '')) {
+      throw new ValidationError('Invalid API token format');
     }
   }
 
   initializeLLM(modelName) {
-    this.llm = new ChatOpenAI({
-      model: modelName,
-      temperature: 0.7,
-      maxTokens: 800,
-    });
+    try {
+      this.llm = new ChatOpenAI({
+        model: modelName,
+        temperature: 0.7,
+        maxTokens: 800,
+      });
+    } catch (error) {
+      throw new ValidationError(`Failed to initialize language model: ${error.message}`);
+    }
   }
 
   resetState() {
@@ -57,35 +90,46 @@ class EmployerAgent {
   }
 
   async fetchWithToken(url, options = {}) {
-    if (!this.API_TOKEN) throw new Error('API token not provided');
-    const res = await fetch(url, {
-      method: options.method || 'GET',
-      headers: {
-        Authorization: `Bearer ${this.API_TOKEN.trim()}`,
-        'Content-Type': 'application/json',
-        ...(options.headers || {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
+    if (!this.API_TOKEN) {
+      throw new APIError('API token not provided. Please authenticate first.', 'NO_TOKEN');
+    }
 
-    if (res.status === 401) {
-      const err = new Error('Authentication failed');
-      err.code = 'AUTH_ERROR';
-      throw err;
+    try {
+      const res = await fetch(url, {
+        method: options.method || 'GET',
+        headers: {
+          Authorization: `Bearer ${this.API_TOKEN.trim()}`,
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+
+      if (res.status === 401) {
+        throw new APIError('Authentication failed: Invalid or expired token', 'AUTH_ERROR');
+      }
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new APIError(`Request failed with status ${res.status}: ${text}`, 'FETCH_ERROR');
+      }
+
+      const data = await res.json().catch(() => null);
+      return data;
+    } catch (error) {
+      if (error instanceof APIError) throw error;
+      throw new APIError(`Network error: ${error.message}`, 'NETWORK_ERROR');
     }
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      const err = new Error(`Request failed with status ${res.status} ${text}`);
-      err.code = 'FETCH_ERROR';
-      throw err;
-    }
-    const data = await res.json().catch(() => null);
-    return data;
   }
 
   async getJobCategories() {
-    const data = await this.fetchWithToken(this.JOB_CATEGORIES_API);
-    return Array.isArray(data) ? data : [];
+    try {
+      const data = await this.fetchWithToken(this.JOB_CATEGORIES_API);
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      console.error('Failed to fetch job categories:', error.message);
+      throw new APIError(`Unable to retrieve job categories: ${error.message}`);
+    }
   }
 
   async loadCategories() {
@@ -93,10 +137,11 @@ class EmployerAgent {
     try {
       this.categories = await this.getJobCategories();
       this.categoriesLoaded = true;
-    } catch (err) {
-      console.warn('[EmployerAgent] loadCategories failed:', err.message);
+    } catch (error) {
+      console.warn('[EmployerAgent] loadCategories failed:', error.message);
       this.categories = [];
       this.categoriesLoaded = false;
+      throw error;
     }
   }
 
@@ -486,7 +531,9 @@ Generate ONLY the response message, no JSON:
 
   async processMessage(userMessage, conversationHistory = []) {
     try {
-      if (!this.API_TOKEN) throw new Error('API token missing');
+      if (!this.API_TOKEN) {
+        throw new APIError('API token missing', 'NO_TOKEN');
+      }
       
       const shouldHandle = await this.shouldHandleQuery(userMessage, conversationHistory);
       if (!shouldHandle) return null;
@@ -575,6 +622,15 @@ Generate ONLY the response message, no JSON:
     } catch (err) {
       console.error('[EmployerAgent] processMessage error:', err);
       this.hasActiveSearch = false;
+      
+      if (err instanceof APIError) {
+        return {
+          type: 'error',
+          message: `Unable to search for candidates: ${err.message}`,
+          code: err.code
+        };
+      }
+      
       return {
         type: 'error',
         message: `Sorry, I encountered an issue while searching. Please try again.`,
@@ -606,5 +662,4 @@ Generate ONLY the response message, no JSON:
     return JSON.stringify(response);
   }
 }
-
-module.exports = { EmployerAgent };
+module.exports = { EmployerAgent, APIError, ValidationError };

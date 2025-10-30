@@ -7,7 +7,7 @@ const {
 } = require('../../utils/chatUtils');
 const { PROMPT_TEMPLATES } = require('../../utils/prompts');
 const { fetchKoziWebsiteContext } = require('../../utils/fetchKoziWebsite');
-const { JobSeekerAgent } = require('../../utils/sqlAgent');
+const { JobSeekerAgent, APIError, ValidationError } = require('../../utils/JobseekerAgent');
 
 const agentInstances = new Map();
 
@@ -28,6 +28,51 @@ function cleanupAgent(sessionId) {
   agentInstances.delete(sessionId);
 }
 
+// Error handling utility functions
+function handleAPIError(error, res) {
+  console.error('API Error:', error);
+  
+  if (error.code === 'AUTH_ERROR' || error.code === 'NO_TOKEN') {
+    return res.status(401).json({ 
+      error: 'Authentication failed',
+      message: error.message,
+      code: error.code
+    });
+  }
+  
+  if (error.code === 'VALIDATION_ERROR') {
+    return res.status(400).json({ 
+      error: 'Validation failed',
+      message: error.message,
+      code: error.code
+    });
+  }
+  
+  return res.status(503).json({ 
+    error: 'Service temporarily unavailable',
+    message: error.message,
+    code: error.code || 'SERVICE_UNAVAILABLE'
+  });
+}
+
+function handleValidationError(error, res) {
+  console.error('Validation Error:', error);
+  return res.status(400).json({ 
+    error: 'Invalid request',
+    message: error.message,
+    code: 'VALIDATION_ERROR'
+  });
+}
+
+function handleGenericError(error, res) {
+  console.error('Server Error:', error);
+  return res.status(500).json({ 
+    error: 'Internal server error',
+    message: 'An unexpected error occurred',
+    code: 'INTERNAL_ERROR'
+  });
+}
+
 async function newChat(req, res) {
   try {
     const { users_id, firstMessage } = req.body;
@@ -37,11 +82,11 @@ async function newChat(req, res) {
                      req.headers['x-api-token'];
 
     if (!users_id) {
-      return res.status(400).json({ error: 'User ID required' });
+      throw new ValidationError('User ID is required');
     }
 
     if (!apiToken) {
-      return res.status(401).json({ error: 'API token required in headers' });
+      throw new APIError('API token required', 'NO_TOKEN');
     }
 
     const title = firstMessage?.trim()
@@ -62,7 +107,16 @@ async function newChat(req, res) {
     });
   } catch (err) {
     console.error('POST /new-chat error:', err);
-    res.status(500).json({ error: 'Failed to create chat' });
+    
+    if (err instanceof APIError) {
+      return handleAPIError(err, res);
+    }
+    
+    if (err instanceof ValidationError) {
+      return handleValidationError(err, res);
+    }
+    
+    handleGenericError(err, res);
   }
 }
 
@@ -77,7 +131,7 @@ async function chat(req, res) {
 
     if (action === 'loadPreviousSession') {
       if (!sessionId) {
-        return res.status(400).json({ error: 'Session ID required' });
+        throw new ValidationError('Session ID is required');
       }
 
       const session = await prisma.chatSession.findUnique({
@@ -86,7 +140,7 @@ async function chat(req, res) {
       });
 
       if (!session) {
-        return res.status(404).json({ error: 'Session not found' });
+        throw new APIError('Session not found', 'SESSION_NOT_FOUND');
       }
 
       return res.json({
@@ -100,11 +154,11 @@ async function chat(req, res) {
     }
 
     if (!sessionId || !message) {
-      return res.status(400).json({ error: 'Session ID and message required' });
+      throw new ValidationError('Session ID and message are required');
     }
 
     if (!apiToken) {
-      return res.status(401).json({ error: 'API token required in headers' });
+      throw new APIError('API token required', 'NO_TOKEN');
     }
 
     const session = await prisma.chatSession.findUnique({
@@ -112,7 +166,7 @@ async function chat(req, res) {
     });
     
     if (!session) {
-      return res.status(404).json({ error: 'Chat session not found' });
+      throw new APIError('Chat session not found', 'SESSION_NOT_FOUND');
     }
 
     const latestMessage = Array.isArray(message)
@@ -141,7 +195,7 @@ async function chat(req, res) {
             }
           }
         })
-        .catch(console.error);
+        .catch(error => console.error('Title generation failed:', error));
     }
 
     setupSSEHeaders(res);
@@ -149,7 +203,7 @@ async function chat(req, res) {
     // Get or create agent with API token
     const agent = getAgentForSession(Number(sessionId), apiToken);
     
-    // Try job agent first
+    // Try agent first
     let agentResult;
     try {
       agentResult = await agent.processMessage(latestMessage);
@@ -206,31 +260,7 @@ async function chat(req, res) {
       });
 
       // Stream the candidate profile
-      const responseContent = agentResult.message;
-      const chunks = responseContent.match(/[^\n]+\n?|\n/g) || [responseContent];
-      
-      for (const chunk of chunks) {
-        const words = chunk.split(' ');
-        for (let i = 0; i < words.length; i++) {
-          const word = words[i];
-          const toSend = i < words.length - 1 ? word + ' ' : word;
-          
-          try {
-            res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
-          } catch (writeError) {
-            if (writeError.code === 'EPIPE') {
-              console.log('Client disconnected, stopping stream');
-              return;
-            }
-            throw writeError;
-          }
-          
-          await new Promise((resolve) => setTimeout(resolve, 5));
-        }
-      }
-
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
+      await streamResponseContent(agentResult.message, res, sessionId);
       return;
     }
 
@@ -244,31 +274,7 @@ async function chat(req, res) {
         },
       });
 
-      const responseContent = agentResult.message;
-      const chunks = responseContent.match(/[^\n]+\n?|\n/g) || [responseContent];
-      
-      for (const chunk of chunks) {
-        const words = chunk.split(' ');
-        for (let i = 0; i < words.length; i++) {
-          const word = words[i];
-          const toSend = i < words.length - 1 ? word + ' ' : word;
-          
-          try {
-            res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
-          } catch (writeError) {
-            if (writeError.code === 'EPIPE') {
-              console.log('Client disconnected, stopping stream');
-              return;
-            }
-            throw writeError;
-          }
-          
-          await new Promise((resolve) => setTimeout(resolve, 5));
-        }
-      }
-
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
+      await streamResponseContent(agentResult.message, res, sessionId);
       return;
     }
 
@@ -297,34 +303,8 @@ async function chat(req, res) {
         res.write(`data: ${JSON.stringify({ jobs: agentResult.jobs })}\n\n`);
       }
 
-      // Stream response with faster typing effect
-      const chunks = responseContent.match(/[^\n]+\n?|\n/g) || [responseContent];
-      
-      for (const chunk of chunks) {
-        // Stream each line/chunk
-        const words = chunk.split(' ');
-        for (let i = 0; i < words.length; i++) {
-          const word = words[i];
-          const toSend = i < words.length - 1 ? word + ' ' : word;
-          
-          try {
-            res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
-          } catch (writeError) {
-            // Handle EPIPE errors gracefully
-            if (writeError.code === 'EPIPE') {
-              console.log('Client disconnected, stopping stream');
-              return;
-            }
-            throw writeError;
-          }
-          
-          // Faster delay for better performance (5ms instead of 20ms)
-          await new Promise((resolve) => setTimeout(resolve, 5));
-        }
-      }
-
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
+      // Stream response content
+      await streamResponseContent(responseContent, res, sessionId);
       return;
     }
 
@@ -335,15 +315,53 @@ async function chat(req, res) {
     console.error('POST /chat error:', err);
     
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Chat service error' });
+      if (err instanceof APIError) {
+        return handleAPIError(err, res);
+      }
+      
+      if (err instanceof ValidationError) {
+        return handleValidationError(err, res);
+      }
+      
+      handleGenericError(err, res);
     } else {
       res.write(`data: ${JSON.stringify({ 
-        content: 'I apologize, but I encountered an error. Please try again or rephrase your question.'
+        content: 'I apologize, but I encountered an error. Please try again or rephrase your question.',
+        error: true,
+        code: 'STREAM_ERROR'
       })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     }
   }
+}
+
+// Helper function to stream response content
+async function streamResponseContent(responseContent, res, sessionId) {
+  const chunks = responseContent.match(/[^\n]+\n?|\n/g) || [responseContent];
+  
+  for (const chunk of chunks) {
+    const words = chunk.split(' ');
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const toSend = i < words.length - 1 ? word + ' ' : word;
+      
+      try {
+        res.write(`data: ${JSON.stringify({ content: toSend })}\n\n`);
+      } catch (writeError) {
+        if (writeError.code === 'EPIPE') {
+          console.log('Client disconnected, stopping stream for session:', sessionId);
+          return;
+        }
+        throw writeError;
+      }
+      
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+
+  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  res.end();
 }
 
 const MAX_WEBSITE_CONTEXT_CHARS = 50000;
@@ -391,38 +409,54 @@ async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res)
     { role: 'user', content: latestMessage },
   ];
 
-  const stream = await openai.chat.completions.create({
-    model: process.env.OPENAI_CHAT_MODEL || 'gpt-4-turbo',
-    messages,
-    stream: true,
-    max_tokens: 1000,
-    temperature: 0.7,
-  });
+  try {
+    const stream = await openai.chat.completions.create({
+      model: process.env.OPENAI_CHAT_MODEL || 'gpt-4-turbo',
+      messages,
+      stream: true,
+      max_tokens: 1000,
+      temperature: 0.7,
+    });
 
-  let fullResponse = '';
-  for await (const chunk of stream) {
-    const content = chunk.choices[0]?.delta?.content || '';
-    if (content) {
-      fullResponse += content;
-      res.write(`data: ${JSON.stringify({ content })}\n\n`);
+    let fullResponse = '';
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content || '';
+      if (content) {
+        fullResponse += content;
+        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+      }
+    }
+
+    if (fullResponse) {
+      await prisma.chatMessage.create({
+        data: { sessionId: Number(sessionId), role: 'assistant', content: fullResponse },
+      });
+    }
+
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+  } catch (error) {
+    console.error('OpenAI API error:', error);
+    
+    if (!res.headersSent) {
+      throw new APIError('AI service temporarily unavailable', 'AI_SERVICE_UNAVAILABLE');
+    } else {
+      res.write(`data: ${JSON.stringify({ 
+        content: 'I apologize, but the AI service is currently unavailable. Please try again later.',
+        error: true,
+        code: 'AI_SERVICE_ERROR'
+      })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
     }
   }
-
-  if (fullResponse) {
-    await prisma.chatMessage.create({
-      data: { sessionId: Number(sessionId), role: 'assistant', content: fullResponse },
-    });
-  }
-
-  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-  res.end();
 }
 
 async function getUserChatSessions(req, res) {
   try {
     const users_id = req.query.users_id;
     if (!users_id) {
-      return res.status(400).json({ error: 'User ID required' });
+      throw new ValidationError('User ID is required');
     }
 
     const sessions = await prisma.chatSession.findMany({
@@ -450,7 +484,12 @@ async function getUserChatSessions(req, res) {
     res.json({ sessions: formatted });
   } catch (err) {
     console.error('GET /chat/sessions error:', err);
-    res.status(500).json({ error: 'Failed to fetch sessions' });
+    
+    if (err instanceof ValidationError) {
+      return handleValidationError(err, res);
+    }
+    
+    handleGenericError(err, res);
   }
 }
 
@@ -459,7 +498,7 @@ async function deleteChatSession(req, res) {
     const { sessionId } = req.params;
 
     if (!sessionId) {
-      return res.status(400).json({ error: 'Session ID required' });
+      throw new ValidationError('Session ID is required');
     }
 
     cleanupAgent(Number(sessionId));
@@ -478,7 +517,12 @@ async function deleteChatSession(req, res) {
     });
   } catch (err) {
     console.error('DELETE /chat/session error:', err);
-    res.status(500).json({ error: 'Failed to delete session' });
+    
+    if (err instanceof ValidationError) {
+      return handleValidationError(err, res);
+    }
+    
+    handleGenericError(err, res);
   }
 }
 
@@ -487,7 +531,7 @@ async function deleteAllChatSessions(req, res) {
     const { users_id } = req.body;
 
     if (!users_id) {
-      return res.status(400).json({ error: 'User ID required' });
+      throw new ValidationError('User ID is required');
     }
 
     const sessions = await prisma.chatSession.findMany({
@@ -511,7 +555,12 @@ async function deleteAllChatSessions(req, res) {
     });
   } catch (err) {
     console.error('DELETE /chat/sessions/all error:', err);
-    res.status(500).json({ error: 'Failed to delete sessions' });
+    
+    if (err instanceof ValidationError) {
+      return handleValidationError(err, res);
+    }
+    
+    handleGenericError(err, res);
   }
 }
 

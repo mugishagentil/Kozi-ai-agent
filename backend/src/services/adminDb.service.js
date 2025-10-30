@@ -1,6 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { ChatOpenAI } = require('@langchain/openai');
-const { SqlAgent } = require('../utils/sqlAgent');
+const { SqlAgent } = require('../utils/JobseekerAgent');
 
 const prisma = new PrismaClient();
 

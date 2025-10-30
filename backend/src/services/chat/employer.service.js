@@ -7,9 +7,31 @@ const {
 } = require('../../utils/chatUtils');
 const { PROMPT_TEMPLATES } = require('../../utils/prompts');
 const { fetchKoziWebsiteContext } = require('../../utils/fetchKoziWebsite');
-const { EmployerAgent } = require('../../utils/EmployerAgent');
+const { EmployerAgent, APIError, ValidationError } = require('../../utils/EmployerAgent');
 
 const agentInstances = new Map();
+
+// Friendly error messages mapping
+const ERROR_MESSAGES = {
+  // Authentication errors
+  'NO_TOKEN': 'Your session has expired. Please refresh the page and try again.',
+  'AUTH_ERROR': 'Your session has expired. Please refresh the page and try again.',
+  'TOKEN_ERROR': 'There was an issue with your authentication. Please try again.',
+  'FETCH_ERROR': 'We\'re having trouble connecting to our services right now. Please try again in a moment.',
+  'NETWORK_ERROR': 'We\'re experiencing connectivity issues. Please check your internet connection and try again.',
+  'API_ERROR': 'Our search service is temporarily unavailable. Please try again shortly.',
+  'VALIDATION_ERROR': 'There was an issue with your request. Please check your input and try again.',
+  'SEARCH_ERROR': 'We encountered an issue while searching for candidates. Please try again.',
+  'CATEGORIES_UNAVAILABLE': 'Job categories are temporarily unavailable. Please try again later.',
+  'DEFAULT': 'Something went wrong. Please try again or contact support if the problem persists.'
+};
+
+function getFriendlyErrorMessage(error, defaultMessage = 'Something went wrong. Please try again.') {
+  if (error instanceof APIError || error instanceof ValidationError) {
+    return ERROR_MESSAGES[error.code] || ERROR_MESSAGES.DEFAULT;
+  }
+  return defaultMessage;
+}
 
 function getAgentForSession(sessionId, apiToken = null) {
   if (!agentInstances.has(sessionId)) {
@@ -22,6 +44,7 @@ function getAgentForSession(sessionId, apiToken = null) {
       agent.setApiToken(apiToken);
     } catch (err) {
       console.warn('Failed to set API token on existing agent:', err.message);
+      throw new APIError(`Failed to set API token: ${err.message}`, 'TOKEN_ERROR');
     }
   }
   return agentInstances.get(sessionId);
@@ -39,11 +62,11 @@ async function newChat(req, res) {
                      req.headers['x-api-token'];
 
     if (!users_id) {
-      return res.status(400).json({ error: 'User ID required' });
+      return res.status(400).json({ error: 'User ID is required to start a chat.' });
     }
 
     if (!apiToken) {
-      return res.status(401).json({ error: 'API token required in headers' });
+      return res.status(401).json({ error: 'Please provide your authentication token to continue.' });
     }
 
     const title = firstMessage?.trim()
@@ -54,9 +77,16 @@ async function newChat(req, res) {
       data: { users_id: parseInt(users_id), role_type: 'employer', title },
     });
 
-    const agent = new EmployerAgent('gpt-4-turbo', apiToken);
-    agent.setSessionId(session.id);
-    agentInstances.set(session.id, agent);
+    try {
+      const agent = new EmployerAgent('gpt-4-turbo', apiToken);
+      agent.setSessionId(session.id);
+      agentInstances.set(session.id, agent);
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        return res.status(400).json({ error: getFriendlyErrorMessage(error) });
+      }
+      throw error;
+    }
 
     res.json({
       success: true,
@@ -64,7 +94,12 @@ async function newChat(req, res) {
     });
   } catch (err) {
     console.error('POST /employer/chat/new error:', err);
-    res.status(500).json({ error: 'Failed to create chat' });
+    
+    if (err instanceof APIError || err instanceof ValidationError) {
+      return res.status(400).json({ error: getFriendlyErrorMessage(err) });
+    }
+    
+    res.status(500).json({ error: 'We encountered an issue while creating your chat. Please try again.' });
   }
 }
 
@@ -78,7 +113,7 @@ async function chat(req, res) {
 
     if (action === 'loadPreviousSession') {
       if (!sessionId) {
-        return res.status(400).json({ error: 'Session ID required' });
+        return res.status(400).json({ error: 'Session ID is required to load your chat.' });
       }
 
       const session = await prisma.chatSession.findUnique({
@@ -87,7 +122,7 @@ async function chat(req, res) {
       });
 
       if (!session) {
-        return res.status(404).json({ error: 'Session not found' });
+        return res.status(404).json({ error: 'We couldn\'t find your chat session. It may have been deleted.' });
       }
 
       return res.json({
@@ -101,11 +136,11 @@ async function chat(req, res) {
     }
 
     if (!sessionId || !message) {
-      return res.status(400).json({ error: 'Session ID and message required' });
+      return res.status(400).json({ error: 'Both session ID and message are required to continue the conversation.' });
     }
 
     if (!apiToken) {
-      return res.status(401).json({ error: 'API token required in headers' });
+      return res.status(401).json({ error: 'Please provide your authentication token to continue.' });
     }
 
     const session = await prisma.chatSession.findUnique({
@@ -113,7 +148,7 @@ async function chat(req, res) {
     });
     
     if (!session) {
-      return res.status(404).json({ error: 'Chat session not found' });
+      return res.status(404).json({ error: 'We couldn\'t find your chat session. Please start a new chat.' });
     }
 
     const latestMessage = Array.isArray(message)
@@ -146,8 +181,6 @@ async function chat(req, res) {
     }
 
     setupSSEHeaders(res);
-
-    // Get conversation history for context
     const conversationHistory = await prisma.chatMessage.findMany({
       where: { sessionId: Number(sessionId) },
       orderBy: { createdAt: 'asc' },
@@ -159,17 +192,34 @@ async function chat(req, res) {
       content: m.content
     }));
 
-    // Get or create agent with API token
-    const agent = getAgentForSession(Number(sessionId), apiToken);
-    
+    let agent;
+    try {
+      agent = getAgentForSession(Number(sessionId), apiToken);
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof APIError) {
+        const friendlyMessage = getFriendlyErrorMessage(error);
+        res.write(`data: ${JSON.stringify({ 
+          content: friendlyMessage,
+          error: true,
+          code: error.code || 'AUTH_ERROR'
+        })}\n\n`);
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        res.end();
+        return;
+      }
+      throw error;
+    }
+
     // Try employer agent first with conversation history
     let agentResult;
     try {
       agentResult = await agent.processMessage(latestMessage, historyForAgent);
     } catch (error) {
-      if (error.code === 'AUTH_ERROR' || error.code === 'NO_TOKEN') {
+      // Handle specific API errors from the agent with friendly messages
+      if (error instanceof APIError) {
+        const friendlyMessage = getFriendlyErrorMessage(error);
         res.write(`data: ${JSON.stringify({ 
-          content: 'Your session has expired. Please refresh the page and try again.',
+          content: friendlyMessage,
           error: true,
           code: error.code
         })}\n\n`);
@@ -201,18 +251,20 @@ async function chat(req, res) {
       return;
     }
 
-    // Handle error responses
+    // Handle error responses from agent with friendly messages
     if (agentResult && agentResult.type === 'error') {
+      const friendlyMessage = getFriendlyErrorMessage({ code: agentResult.code });
+      
       await prisma.chatMessage.create({
         data: { 
           sessionId: Number(sessionId), 
           role: 'assistant', 
-          content: agentResult.message 
+          content: friendlyMessage 
         },
       });
 
       res.write(`data: ${JSON.stringify({ 
-        content: agentResult.message,
+        content: friendlyMessage,
         error: true,
         code: agentResult.code
       })}\n\n`);
@@ -249,11 +301,29 @@ async function chat(req, res) {
   } catch (err) {
     console.error('POST /employer/chat error:', err);
     
+    // Handle specific error types with friendly messages
+    if (err instanceof APIError || err instanceof ValidationError) {
+      const friendlyMessage = getFriendlyErrorMessage(err);
+      
+      if (!res.headersSent) {
+        return res.status(400).json({ error: friendlyMessage });
+      } else {
+        res.write(`data: ${JSON.stringify({ 
+          content: friendlyMessage,
+          error: true,
+          code: err.code
+        })}\n\n`);
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+    
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Chat service error' });
+      res.status(500).json({ error: 'We encountered an unexpected error. Please try again.' });
     } else {
       res.write(`data: ${JSON.stringify({ 
-        content: 'I apologize, but I encountered an error. Please try again.'
+        content: 'I apologize, but I encountered an unexpected error. Please try again.'
       })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
@@ -360,7 +430,7 @@ async function getUserChatSessions(req, res) {
   try {
     const users_id = req.query.users_id;
     if (!users_id) {
-      return res.status(400).json({ error: 'User ID required' });
+      return res.status(400).json({ error: 'User ID is required to view your chat sessions.' });
     }
 
     const sessions = await prisma.chatSession.findMany({
@@ -388,7 +458,7 @@ async function getUserChatSessions(req, res) {
     res.json({ sessions: formatted });
   } catch (err) {
     console.error('GET /employer/chat/sessions error:', err);
-    res.status(500).json({ error: 'Failed to fetch sessions' });
+    res.status(500).json({ error: 'We encountered an issue while loading your chat sessions. Please try again.' });
   }
 }
 
@@ -397,7 +467,7 @@ async function deleteChatSession(req, res) {
     const { sessionId } = req.params;
 
     if (!sessionId) {
-      return res.status(400).json({ error: 'Session ID required' });
+      return res.status(400).json({ error: 'Session ID is required to delete a chat.' });
     }
 
     cleanupAgent(Number(sessionId));
@@ -412,11 +482,11 @@ async function deleteChatSession(req, res) {
 
     res.json({
       success: true,
-      message: 'Chat session deleted',
+      message: 'Chat session deleted successfully.',
     });
   } catch (err) {
     console.error('DELETE /employer/chat/session error:', err);
-    res.status(500).json({ error: 'Failed to delete session' });
+    res.status(500).json({ error: 'We couldn\'t delete the chat session. Please try again.' });
   }
 }
 
@@ -425,7 +495,7 @@ async function deleteAllChatSessions(req, res) {
     const { users_id } = req.body;
 
     if (!users_id) {
-      return res.status(400).json({ error: 'User ID required' });
+      return res.status(400).json({ error: 'User ID is required to delete all chats.' });
     }
 
     const sessions = await prisma.chatSession.findMany({
@@ -453,11 +523,11 @@ async function deleteAllChatSessions(req, res) {
 
     res.json({
       success: true,
-      message: 'All sessions deleted',
+      message: 'All chat sessions have been deleted successfully.',
     });
   } catch (err) {
     console.error('DELETE /employer/chat/sessions/all error:', err);
-    res.status(500).json({ error: 'Failed to delete sessions' });
+    res.status(500).json({ error: 'We couldn\'t delete all chat sessions. Please try again.' });
   }
 }
 

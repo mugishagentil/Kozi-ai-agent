@@ -47,7 +47,7 @@
 </template>
 
 <script>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import ChatArea from '../components/ChatArea.vue'
 import ChatInput from '../components/ChatInput.vue'
@@ -186,6 +186,13 @@ export default {
       originalSendSuggestion(suggestion)
     }
 
+    // Listen for new chat requests from sidebar
+    const handleNewChatRequest = () => {
+      console.log('📢 New chat requested via event')
+      isNewChat.value = true
+      startNewChat()
+    }
+
     // Check initial screen size on component mount
     onMounted(() => {
       console.log('🆕 ChatbotComponent mounted:', { 
@@ -195,6 +202,9 @@ export default {
         path: route.path,
         fullPath: route.fullPath
       })
+      
+      // Listen for new chat requests
+      window.addEventListener('newChatRequested', handleNewChatRequest)
       
       // If no sessionId in route query, ensure we show welcome screen
       if (!route.query.sessionId) {
@@ -217,6 +227,11 @@ export default {
           sendMessage(props.prefilledMessage)
         }, 1000)
       }
+    })
+    
+    // Cleanup event listener
+    onUnmounted(() => {
+      window.removeEventListener('newChatRequested', handleNewChatRequest)
     })
 
     // Watch messages to ensure isNewChat is false when messages exist

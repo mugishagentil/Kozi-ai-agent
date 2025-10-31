@@ -156,7 +156,6 @@
 
 <script>
 import { useRoute, useRouter } from 'vue-router';
-import { globalVariable } from "@/global";
 
 export default {
   props: {
@@ -175,7 +174,19 @@ export default {
       loadingHistory: false,
     };
   },
+  computed: {
+    // Determine API base - use same logic as useKoziChat for consistency
+    // Check if we're in development (localhost) or production (Railway)
+    apiBase() {
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:5050/api'
+      }
+      // Production - use Railway (where chat history is stored)
+      return 'https://kozi-ai-agent-production.up.railway.app/api'
+    }
+  },
   mounted() {
+    console.log('🟢 Job Seeker Sidebar mounted, initializing...');
     this.getUserIdAndCheckProfile();
     // Set currentSessionId from route query
     if (this.$route.query.sessionId) {
@@ -186,9 +197,20 @@ export default {
       () => this.$route.query.sessionId,
       (sessionId) => {
         this.currentSessionId = sessionId ? String(sessionId) : null;
+        // Reload history when a session is loaded via URL (if dropdown is open)
+        if (sessionId && this.userId && this.aiDropdownOpen) {
+          console.log('🔄 Job Seeker Sidebar: Session ID changed in URL, reloading history...');
+          this.loadChatHistory();
+        }
       },
       { immediate: false }
     );
+    
+    // Listen for chat history updates
+    window.addEventListener('chatHistoryUpdated', this.handleChatHistoryUpdate);
+  },
+  beforeUnmount() {
+    window.removeEventListener('chatHistoryUpdated', this.handleChatHistoryUpdate);
   },
   setup() {
     const route = useRoute();
@@ -281,7 +303,7 @@ export default {
         this.userEmail = payload.email;
 
         // Get user ID
-        const res = await fetch(`${globalVariable}/get_user_id_by_email/${this.userEmail}`, {
+        const res = await fetch(`${this.apiBase}/get_user_id_by_email/${this.userEmail}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
@@ -290,7 +312,7 @@ export default {
           this.userId = data.users_id;
 
           // Check profile completeness
-          const checkRes = await fetch(`${globalVariable}/seekers/check_columns/${this.userId}`, {
+          const checkRes = await fetch(`${this.apiBase}/seekers/check_columns/${this.userId}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           const checkData = await checkRes.json();
@@ -307,11 +329,18 @@ export default {
         console.error("Error retrieving user info or checking profile:", err);
       }
     },
-    toggleAIDropdown() {
+    async toggleAIDropdown() {
       this.aiDropdownOpen = !this.aiDropdownOpen;
+      console.log('🔄 Job Seeker Sidebar: AI dropdown toggled, open:', this.aiDropdownOpen);
       // Always reload history when opening dropdown to ensure it's up to date
-      if (this.aiDropdownOpen && this.userId) {
-        this.loadChatHistory();
+      if (this.aiDropdownOpen) {
+        if (this.userId) {
+          console.log('📋 Job Seeker Sidebar: Reloading history on dropdown open');
+          await this.loadChatHistory();
+        } else {
+          console.log('⚠️ Job Seeker Sidebar: No user ID, getting it first...');
+          await this.getUserIdAndCheckProfile();
+        }
       }
     },
     handleAIClick(item) {
@@ -329,16 +358,24 @@ export default {
       this.loadingHistory = true;
       try {
         const token = localStorage.getItem("employeeToken");
-        const res = await fetch(`${globalVariable}/api/chat/sessions?users_id=${this.userId}`, {
+        const url = `${this.apiBase}/chat/sessions?users_id=${this.userId}`;
+        console.log('📋 Job Seeker Sidebar: Loading chat history from:', url);
+        
+        const res = await fetch(url, {
           headers: { 
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           }
         });
         
+        console.log('📋 Job Seeker Sidebar: Response status:', res.status);
+        
         if (res.ok) {
           const data = await res.json();
+          console.log('📋 Job Seeker Sidebar: Response data:', data);
+          
           if (data.sessions && Array.isArray(data.sessions)) {
+            console.log(`✅ Job Seeker Sidebar: Found ${data.sessions.length} chat sessions`);
             this.chatHistory = data.sessions.map(session => ({
               sessionId: String(session.id),
               title: session.title || 'New Chat',
@@ -349,7 +386,15 @@ export default {
               const dateB = new Date(b.createdAt || 0);
               return dateB - dateA;
             });
+            console.log('✅ Job Seeker Sidebar: Loaded chat history:', this.chatHistory.length, 'sessions');
+          } else {
+            console.warn('⚠️ Job Seeker Sidebar: No sessions array in response:', data);
+            this.chatHistory = [];
           }
+        } else {
+          const errorText = await res.text();
+          console.error('❌ Job Seeker Sidebar: Error loading chat history:', res.status, errorText);
+          this.chatHistory = [];
         }
       } catch (err) {
         console.error("Error loading chat history:", err);
@@ -359,8 +404,30 @@ export default {
     },
     handleNewChat() {
       this.$emit('close-sidebar');
-      // Navigate without sessionId to trigger new chat
-      this.$router.push({ path: '/dashboard/ai-agent', query: {} });
+      console.log('🆕 Job Seeker: New Chat clicked, navigating to welcome page...');
+      
+      // Check if we're already on the AI page
+      if (this.$route.path === '/dashboard/ai-agent' && this.$route.query.sessionId) {
+        // If we're already on the AI page with a sessionId, replace to clear it
+        console.log('🔄 Already on AI page, replacing route to clear sessionId');
+        this.$router.replace({ 
+          path: '/dashboard/ai-agent', 
+          query: {} 
+        }).then(() => {
+          // Dispatch event to trigger new chat
+          window.dispatchEvent(new CustomEvent('newChatRequested'));
+        });
+      } else {
+        // Navigate to AI page without sessionId
+        console.log('🔄 Navigating to AI page for new chat');
+        this.$router.push({ 
+          path: '/dashboard/ai-agent', 
+          query: {} 
+        }).then(() => {
+          // Dispatch event to trigger new chat
+          window.dispatchEvent(new CustomEvent('newChatRequested'));
+        });
+      }
     },
     loadChat(chat) {
       this.$emit('close-sidebar');
@@ -374,7 +441,7 @@ export default {
       
       try {
         const token = localStorage.getItem("employeeToken");
-        const res = await fetch(`${globalVariable}/api/chat/session/${chat.sessionId}`, {
+        const res = await fetch(`${this.apiBase}/chat/session/${chat.sessionId}`, {
           method: 'DELETE',
           headers: { 
             'Authorization': `Bearer ${token}`
@@ -398,6 +465,17 @@ export default {
     closeModalAndNavigate() {
       this.showModal = false;
       this.$emit('close-sidebar');
+    },
+    async handleChatHistoryUpdate() {
+      // Reload chat history when a new message is sent (even if dropdown is closed)
+      console.log('📢 Job Seeker Sidebar: Chat history updated event received');
+      if (this.userId) {
+        console.log('📢 Job Seeker Sidebar: Reloading history due to update event');
+        await this.loadChatHistory();
+      } else {
+        console.warn('⚠️ Job Seeker Sidebar: Cannot reload history - no user ID');
+        await this.getUserIdAndCheckProfile();
+      }
     }
   }
 };

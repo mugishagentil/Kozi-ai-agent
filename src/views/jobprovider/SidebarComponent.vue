@@ -49,17 +49,20 @@
                     @click="loadChat(chat)"
                   >
                     <span class="chat-title">{{ chat.title || 'Untitled Chat' }}</span>
-                    <button 
-                      class="delete-chat-btn"
-                      @click.stop="deleteChat(chat)"
-                      title="Delete this chat"
-                    >
-                      <i class="fas fa-trash"></i>
-                    </button>
                   </div>
+                </div>
+                <div v-else-if="loadingHistory" class="empty-history">
+                  <p>Loading chats...</p>
                 </div>
                 <div v-else class="empty-history">
                   <p>No chats yet</p>
+                  <!-- Debug info - can be removed after testing -->
+                  <small v-if="userId" style="font-size: 0.7rem; color: #999; display: block; margin-top: 4px;">
+                    Ready to load (userId: {{ userId }})
+                  </small>
+                  <small v-else style="font-size: 0.7rem; color: #999; display: block; margin-top: 4px;">
+                    Waiting for user ID...
+                  </small>
                 </div>
               </li>
             </ul>
@@ -98,7 +101,6 @@
 <script>
 import { useRoute, useRouter } from 'vue-router';
 import { ref, onMounted, onUnmounted, watch } from 'vue';
-import { globalVariable } from '../../global';
 
 export default {
   props: {
@@ -113,6 +115,17 @@ export default {
     const currentSessionId = ref(null);
     const loadingHistory = ref(false);
     const userId = ref(null);
+    
+    // Determine API base - use same logic as useKoziChat for consistency
+    // Check if we're in development (localhost) or production (Railway)
+    const getApiBase = () => {
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:5050/api'
+      }
+      // Production - use Railway (where chat history is stored)
+      return 'https://kozi-ai-agent-production.up.railway.app/api'
+    }
+    const API_BASE = getApiBase()
 
     const menuItems = [
       {
@@ -176,11 +189,22 @@ export default {
       return matchPrefix.some(prefix => route.path.startsWith(prefix));
     };
 
-    const toggleAIDropdown = () => {
+    const toggleAIDropdown = async () => {
       aiDropdownOpen.value = !aiDropdownOpen.value;
+      console.log('🔄 Sidebar: AI dropdown toggled, open:', aiDropdownOpen.value);
       // Always reload history when opening dropdown to ensure it's up to date
-      if (aiDropdownOpen.value && userId.value) {
-        loadChatHistory();
+      if (aiDropdownOpen.value) {
+        if (userId.value) {
+          console.log('📋 Sidebar: Reloading history on dropdown open');
+          await loadChatHistory();
+        } else {
+          console.log('⚠️ Sidebar: No user ID, getting it first...');
+          await getUserId();
+          if (userId.value) {
+            console.log('📋 Sidebar: Got user ID, now loading history...');
+            await loadChatHistory();
+          }
+        }
       }
     };
 
@@ -197,28 +221,44 @@ export default {
     const getUserId = async () => {
       try {
         const token = localStorage.getItem("employerToken");
-        if (!token) return;
+        if (!token) {
+          console.warn('⚠️ No employerToken found in sidebar');
+          return;
+        }
         
         const payload = JSON.parse(atob(token.split(".")[1]));
         const userEmail = payload.email;
         
-        const res = await fetch(`${globalVariable}/get_user_id_by_email/${userEmail}`, {
+        console.log('📧 Sidebar: Getting user ID for email:', userEmail);
+        
+        const res = await fetch(`${API_BASE}/get_user_id_by_email/${userEmail}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
         const data = await res.json();
         if (res.ok && data.users_id) {
           userId.value = data.users_id;
-          loadChatHistory();
+          console.log('✅ Sidebar: Got user ID:', userId.value);
+          
+          // Load chat history immediately after getting user ID
+          console.log('📋 Sidebar: Loading chat history after getting user ID');
+          await loadChatHistory();
+        } else {
+          console.warn('⚠️ Sidebar: Failed to get user ID:', data);
         }
       } catch (err) {
-        console.error("Error getting user ID:", err);
+        console.error("❌ Sidebar: Error getting user ID:", err);
       }
     };
 
     const loadChatHistory = async () => {
-      if (!userId.value || loadingHistory.value) {
-        console.log('⚠️ Cannot load history:', { userId: userId.value, loading: loadingHistory.value });
+      if (!userId.value) {
+        console.warn('⚠️ Sidebar: Cannot load history - no user ID yet:', { userId: userId.value });
+        return;
+      }
+      
+      if (loadingHistory.value) {
+        console.log('⚠️ Sidebar: History already loading, skipping...');
         return;
       }
       
@@ -231,8 +271,8 @@ export default {
           return;
         }
         
-        const url = `${globalVariable}/api/employer/chat/sessions?users_id=${userId.value}`;
-        console.log('📋 Loading chat history from:', url);
+        const url = `${API_BASE}/chat/employer/sessions?users_id=${userId.value}`;
+        console.log('📋 Sidebar: Loading chat history from:', url);
         
         const res = await fetch(url, {
           headers: { 
@@ -248,8 +288,8 @@ export default {
           console.log('📋 Chat history response data:', data);
           
           if (data.sessions && Array.isArray(data.sessions)) {
-            console.log(`✅ Found ${data.sessions.length} chat sessions`);
-            chatHistory.value = data.sessions.map(session => ({
+            console.log(`✅ Sidebar: Found ${data.sessions.length} chat sessions`);
+            const mappedSessions = data.sessions.map(session => ({
               sessionId: String(session.id),
               title: session.title || 'New Chat',
               createdAt: session.created_at || session.createdAt,
@@ -259,8 +299,18 @@ export default {
               const dateB = new Date(b.createdAt || 0);
               return dateB - dateA;
             });
-            console.log('✅ Loaded chat history:', chatHistory.value.length, 'sessions');
-            console.log('📋 Session titles:', chatHistory.value.map(s => ({ id: s.sessionId, title: s.title })));
+            console.log('📋 Sidebar: Mapped sessions:', mappedSessions);
+            
+            // Force reactivity by creating a new array reference
+            chatHistory.value = [...mappedSessions];
+            console.log('✅ Sidebar: Loaded chat history:', chatHistory.value.length, 'sessions');
+            console.log('📋 Sidebar: Session titles:', chatHistory.value.map(s => ({ id: s.sessionId, title: s.title })));
+            console.log('🔍 Sidebar: chatHistory.value after assignment:', chatHistory.value);
+            
+            // Force Vue to update by triggering a reactive change
+            if (chatHistory.value.length > 0) {
+              console.log('✅ Sidebar: History should now be visible in dropdown!');
+            }
           } else {
             console.warn('⚠️ No sessions array in response:', data);
             chatHistory.value = [];
@@ -280,11 +330,30 @@ export default {
 
     const handleNewChat = () => {
       emit('close-sidebar');
-      // Navigate to new chat - clear sessionId explicitly
-      router.push({ 
-        path: '/employer/ai-agent', 
-        query: {} 
-      });
+      console.log('🆕 New Chat clicked, navigating to welcome page...');
+      
+      // Check if we're already on the AI page
+      if (route.path === '/employer/ai-agent' && route.query.sessionId) {
+        // If we're already on the AI page with a sessionId, replace to clear it
+        console.log('🔄 Already on AI page, replacing route to clear sessionId');
+        router.replace({ 
+          path: '/employer/ai-agent', 
+          query: {} 
+        }).then(() => {
+          // Dispatch event to trigger new chat
+          window.dispatchEvent(new CustomEvent('newChatRequested'));
+        });
+      } else {
+        // Navigate to AI page without sessionId
+        console.log('🔄 Navigating to AI page for new chat');
+        router.push({ 
+          path: '/employer/ai-agent', 
+          query: {} 
+        }).then(() => {
+          // Dispatch event to trigger new chat
+          window.dispatchEvent(new CustomEvent('newChatRequested'));
+        });
+      }
     };
 
     const loadChat = (chat) => {
@@ -300,7 +369,7 @@ export default {
       
       try {
         const token = localStorage.getItem("employerToken");
-        const res = await fetch(`${globalVariable}/api/employer/chat/session/${chat.sessionId}`, {
+        const res = await fetch(`${API_BASE}/chat/employer/session/${chat.sessionId}`, {
           method: 'DELETE',
           headers: { 
             'Authorization': `Bearer ${token}`
@@ -316,17 +385,34 @@ export default {
       }
     };
 
-    // Watch route to update currentSessionId
+    // Watch route to update currentSessionId and reload history when needed
     watch(
       () => route.query.sessionId,
-      (sessionId) => {
+      async (sessionId) => {
         currentSessionId.value = sessionId ? String(sessionId) : null;
+        // Reload history when a session is loaded via URL (if dropdown is open)
+        if (sessionId && userId.value && aiDropdownOpen.value) {
+          console.log('🔄 Sidebar: Session ID changed in URL, reloading history...');
+          await loadChatHistory();
+        }
       },
       { immediate: true }
     );
+    
+    // Watch for route changes to AI page to reload history
+    watch(
+      () => route.path,
+      async (newPath) => {
+        if (newPath.includes('/ai-agent') && aiDropdownOpen.value && userId.value) {
+          console.log('🔄 Sidebar: Route changed to AI page, reloading history...');
+          await loadChatHistory();
+        }
+      }
+    );
 
     onMounted(() => {
-      getUserId();
+      console.log('🟢 Sidebar mounted, initializing...');
+      
       // Set currentSessionId from route query
       if (route.query.sessionId) {
         currentSessionId.value = String(route.query.sessionId);
@@ -334,19 +420,93 @@ export default {
       
       // Listen for chat history updates
       window.addEventListener('chatHistoryUpdated', handleChatHistoryUpdate);
+      
+      // Also listen for focus events to refresh history when user returns
+      const handleFocus = () => {
+        if (userId.value) {
+          console.log('📋 Sidebar: Window focus, reloading history');
+          loadChatHistory();
+        }
+      };
+      window.addEventListener('focus', handleFocus);
+      
+      // Store handler for cleanup
+      window._sidebarFocusHandler = handleFocus;
+      
+      // Initialize: get user ID and load history
+      const initializeHistory = async () => {
+        try {
+          await getUserId();
+          
+          // If we got user ID, load history immediately
+          if (userId.value) {
+            console.log('📋 Sidebar: User ID available on mount, loading history...');
+            await loadChatHistory();
+          } else {
+            // Retry after delay
+            console.log('⚠️ Sidebar: User ID not available, will retry...');
+            setTimeout(async () => {
+              if (!userId.value) {
+                await getUserId();
+              }
+              if (userId.value) {
+                console.log('📋 Sidebar: Retry - loading history after delay');
+                await loadChatHistory();
+              }
+            }, 1500);
+          }
+        } catch (err) {
+          console.error('❌ Sidebar: Failed to initialize history:', err);
+        }
+      };
+      
+      initializeHistory();
     });
+    
+    const handleChatHistoryUpdate = async () => {
+      // Reload chat history when a new message is sent (even if dropdown is closed)
+      console.log('📢 Sidebar: Chat history updated event received');
+      // Always try to load history when event fires, even if dropdown is closed
+      // This ensures history is ready when user opens dropdown
+      if (userId.value) {
+        console.log('📢 Sidebar: Reloading history due to update event');
+        await loadChatHistory();
+      } else {
+        console.warn('⚠️ Sidebar: Cannot reload history - no user ID, getting it first');
+        // Try to get user ID first
+        await getUserId();
+        if (userId.value) {
+          console.log('📢 Sidebar: Got user ID, now loading history from event...');
+          await loadChatHistory();
+        }
+      }
+    };
     
     onUnmounted(() => {
       window.removeEventListener('chatHistoryUpdated', handleChatHistoryUpdate);
-    });
-    
-    const handleChatHistoryUpdate = () => {
-      // Reload chat history when a new message is sent (even if dropdown is closed)
-      if (userId.value) {
-        console.log('📢 Chat history updated event received, reloading...');
-        loadChatHistory();
+      if (window._sidebarFocusHandler) {
+        window.removeEventListener('focus', window._sidebarFocusHandler);
+        delete window._sidebarFocusHandler;
       }
-    };
+    });
+
+    // Debug watcher to track chatHistory changes
+    watch(chatHistory, (newVal, oldVal) => {
+      console.log('🔍 Sidebar: chatHistory changed:', {
+        oldLength: oldVal?.length || 0,
+        newLength: newVal?.length || 0,
+        newValue: newVal
+      });
+    }, { deep: true });
+    
+    // Watch userId and automatically load history when it becomes available
+    watch(userId, async (newVal) => {
+      console.log('🔍 Sidebar: userId changed:', newVal);
+      if (newVal) {
+        console.log('📋 Sidebar: User ID available, loading history...');
+        await loadChatHistory();
+      }
+    });
 
     return {
       route,
@@ -362,6 +522,7 @@ export default {
       loadChat,
       deleteChat,
       handleChatHistoryUpdate,
+      userId, // Expose userId for template debugging if needed
     };
   },
 };
@@ -654,43 +815,53 @@ export default {
   letter-spacing: 0.5px;
 }
 
-/* Chat History List */
+/* Chat History List - Clean minimal style like example */
 .chat-history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .chat-history-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem;
-  margin: 0 0.25rem;
-  border-radius: 6px;
+  display: block;
+  padding: 0.625rem 1.5rem;
   cursor: pointer;
-  transition: background 0.2s ease;
-  background: white;
-  border: 1px solid #e9ecef;
+  transition: all 0.2s ease;
+  border-radius: 8px;
+  margin-bottom: 0.125rem;
+  color: #333;
+  font-size: 0.875rem;
+  font-weight: 400;
+  background-color: transparent;
+  border: none;
+  text-align: left;
+  width: 100%;
+  position: relative;
 }
 
 .chat-history-item:hover {
-  background: #f8f9fa;
+  background-color: rgba(0, 0, 0, 0.04);
 }
 
 .chat-history-item.active {
-  background: #E960A6;
-  color: white;
-  border-color: #E960A6;
+  background-color: rgba(0, 0, 0, 0.08);
+  font-weight: 400;
+  color: #000;
 }
 
 .chat-title {
-  flex: 1;
+  display: block;
+  color: inherit;
   font-size: 0.875rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-right: 0.5rem;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  line-height: 1.4;
 }
 
 .delete-chat-btn {

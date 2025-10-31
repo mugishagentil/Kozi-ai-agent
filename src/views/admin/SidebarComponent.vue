@@ -121,7 +121,6 @@
 
 <script>
 import '@/assets/css/styles.min.css';
-import { globalVariable } from '@/global';
 
 export default {
   name: "SidebarNavigation",
@@ -368,7 +367,7 @@ export default {
         const payload = JSON.parse(atob(token.split(".")[1]));
         const userEmail = payload.email;
         
-        const res = await fetch(`${globalVariable}/get_user_id_by_email/${userEmail}`, {
+        const res = await fetch(`${this.apiBase}/get_user_id_by_email/${userEmail}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
@@ -401,16 +400,24 @@ export default {
       this.loadingHistory = true;
       try {
         const token = localStorage.getItem("adminToken");
-        const res = await fetch(`${globalVariable}/api/admin/chat/sessions?users_id=${this.userId}`, {
+        const url = `${this.apiBase}/admin/chat/sessions?users_id=${this.userId}`;
+        console.log('📋 Admin Sidebar: Loading chat history from:', url);
+        
+        const res = await fetch(url, {
           headers: { 
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           }
         });
         
+        console.log('📋 Admin Sidebar: Response status:', res.status);
+        
         if (res.ok) {
           const data = await res.json();
+          console.log('📋 Admin Sidebar: Response data:', data);
+          
           if (data.sessions && Array.isArray(data.sessions)) {
+            console.log(`✅ Admin Sidebar: Found ${data.sessions.length} chat sessions`);
             this.chatHistory = data.sessions.map(session => ({
               sessionId: String(session.id),
               title: session.title || 'New Chat',
@@ -421,7 +428,15 @@ export default {
               const dateB = new Date(b.createdAt || 0);
               return dateB - dateA;
             });
+            console.log('✅ Admin Sidebar: Loaded chat history:', this.chatHistory.length, 'sessions');
+          } else {
+            console.warn('⚠️ Admin Sidebar: No sessions array in response:', data);
+            this.chatHistory = [];
           }
+        } else {
+          const errorText = await res.text();
+          console.error('❌ Admin Sidebar: Error loading chat history:', res.status, errorText);
+          this.chatHistory = [];
         }
       } catch (err) {
         console.error("Error loading chat history:", err);
@@ -430,7 +445,31 @@ export default {
       }
     },
     handleNewChat() {
-      this.$router.push({ path: '/admin/ai-agent', query: {} });
+      this.$emit('close-sidebar');
+      console.log('🆕 Admin: New Chat clicked, navigating to welcome page...');
+      
+      // Check if we're already on the AI page
+      if (this.$route.path === '/admin/ai-agent' && this.$route.query.sessionId) {
+        // If we're already on the AI page with a sessionId, replace to clear it
+        console.log('🔄 Already on AI page, replacing route to clear sessionId');
+        this.$router.replace({ 
+          path: '/admin/ai-agent', 
+          query: {} 
+        }).then(() => {
+          // Dispatch event to trigger new chat
+          window.dispatchEvent(new CustomEvent('newChatRequested'));
+        });
+      } else {
+        // Navigate to AI page without sessionId
+        console.log('🔄 Navigating to AI page for new chat');
+        this.$router.push({ 
+          path: '/admin/ai-agent', 
+          query: {} 
+        }).then(() => {
+          // Dispatch event to trigger new chat
+          window.dispatchEvent(new CustomEvent('newChatRequested'));
+        });
+      }
     },
     loadChat(chat) {
       this.$router.push({
@@ -443,7 +482,7 @@ export default {
       
       try {
         const token = localStorage.getItem("adminToken");
-        const res = await fetch(`${globalVariable}/api/admin/chat/session/${chat.sessionId}`, {
+        const res = await fetch(`${this.apiBase}/admin/chat/session/${chat.sessionId}`, {
           method: 'DELETE',
           headers: { 
             'Authorization': `Bearer ${token}`

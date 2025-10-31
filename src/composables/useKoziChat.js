@@ -347,6 +347,12 @@ const initializeUser = async () => {
             currentChatTitle.value = data.data.title
             console.log('✅ Received title from backend:', data.data.title)
           }
+          
+          // Dispatch event immediately after session creation so sidebar can load history
+          console.log('📢 Dispatching chatHistoryUpdated event after session creation')
+          window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
+            detail: { sessionId: data.data.session_id }
+          }))
         } else {
           throw new Error('Failed to start session')
         }
@@ -436,15 +442,22 @@ const initializeUser = async () => {
         // Reload history from backend to get updated title and ensure sidebar syncs
         // Also dispatch event to notify sidebars to reload
         if (currentUser.value) {
+          // Dispatch event immediately first (sidebar can load in background)
+          console.log('📢 Dispatching chatHistoryUpdated event after message completion')
+          window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
+            detail: { sessionId: currentSession.value }
+          }))
+          
+          // Then reload from backend after a short delay
           setTimeout(async () => {
             console.log('🔄 Reloading history from backend after message')
             await loadHistoryFromBackend()
             
-            // Dispatch custom event to notify sidebar components
+            // Dispatch event again after backend sync to ensure sidebar has latest data
             window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
               detail: { sessionId: currentSession.value }
             }))
-          }, 1000)
+          }, 1500)
         }
       }
 
@@ -826,8 +839,16 @@ formatted = formatted.replace(
 }
 
 // ===== API integration with STREAMING =====
-// const API_BASE = 'https://kozi-ai-agent-production.up.railway.app/api'.replace(/\/+$/, '')
-const API_BASE = 'http://localhost:5050/api'.replace(/\/+$/, '')
+// Determine API base - use Railway for production, localhost for development
+const getApiBase = () => {
+  // Check if we're in development (localhost)
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:5050/api'
+  }
+  // Production - use Railway
+  return 'https://kozi-ai-agent-production.up.railway.app/api'
+}
+const API_BASE = getApiBase().replace(/\/+$/, '')
 
 // Admin detection logic
 function isAdminUser() {

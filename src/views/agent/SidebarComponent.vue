@@ -99,7 +99,6 @@
 <script>
 import { useRoute, useRouter } from 'vue-router';
 import { ref, onMounted, watch } from 'vue';
-import { globalVariable } from '@/global';
 
 export default {
   props: {
@@ -114,6 +113,17 @@ export default {
     const currentSessionId = ref(null);
     const loadingHistory = ref(false);
     const userId = ref(null);
+    
+    // Determine API base - use same logic as useKoziChat for consistency
+    // Check if we're in development (localhost) or production (Railway)
+    const getApiBase = () => {
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:5050/api'
+      }
+      // Production - use Railway (where chat history is stored)
+      return 'https://kozi-ai-agent-production.up.railway.app/api'
+    }
+    const API_BASE = getApiBase()
 
     const menuItems = [
       {
@@ -191,7 +201,7 @@ export default {
         const payload = JSON.parse(atob(token.split(".")[1]));
         const userEmail = payload.email;
         
-        const res = await fetch(`${globalVariable}/get_user_id_by_email/${userEmail}`, {
+        const res = await fetch(`${API_BASE}/get_user_id_by_email/${userEmail}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
@@ -211,16 +221,24 @@ export default {
       loadingHistory.value = true;
       try {
         const token = localStorage.getItem("agentToken") || localStorage.getItem("adminToken");
-        const res = await fetch(`${globalVariable}/api/admin/chat/sessions?users_id=${userId.value}`, {
+        const url = `${API_BASE}/admin/chat/sessions?users_id=${userId.value}`;
+        console.log('📋 Agent Sidebar: Loading chat history from:', url);
+        
+        const res = await fetch(url, {
           headers: { 
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           }
         });
         
+        console.log('📋 Agent Sidebar: Response status:', res.status);
+        
         if (res.ok) {
           const data = await res.json();
+          console.log('📋 Agent Sidebar: Response data:', data);
+          
           if (data.sessions && Array.isArray(data.sessions)) {
+            console.log(`✅ Agent Sidebar: Found ${data.sessions.length} chat sessions`);
             chatHistory.value = data.sessions.map(session => ({
               sessionId: String(session.id),
               title: session.title || 'New Chat',
@@ -231,7 +249,15 @@ export default {
               const dateB = new Date(b.createdAt || 0);
               return dateB - dateA;
             });
+            console.log('✅ Agent Sidebar: Loaded chat history:', chatHistory.value.length, 'sessions');
+          } else {
+            console.warn('⚠️ Agent Sidebar: No sessions array in response:', data);
+            chatHistory.value = [];
           }
+        } else {
+          const errorText = await res.text();
+          console.error('❌ Agent Sidebar: Error loading chat history:', res.status, errorText);
+          chatHistory.value = [];
         }
       } catch (err) {
         console.error("Error loading chat history:", err);
@@ -241,8 +267,31 @@ export default {
     };
 
     const handleNewChat = () => {
-      // Navigate without sessionId to trigger new chat
-      router.push({ path: '/agent/ai-agent', query: {} });
+      emit('close-sidebar');
+      console.log('🆕 Agent: New Chat clicked, navigating to welcome page...');
+      
+      // Check if we're already on the AI page
+      if (route.path === '/agent/ai-agent' && route.query.sessionId) {
+        // If we're already on the AI page with a sessionId, replace to clear it
+        console.log('🔄 Already on AI page, replacing route to clear sessionId');
+        router.replace({ 
+          path: '/agent/ai-agent', 
+          query: {} 
+        }).then(() => {
+          // Dispatch event to trigger new chat
+          window.dispatchEvent(new CustomEvent('newChatRequested'));
+        });
+      } else {
+        // Navigate to AI page without sessionId
+        console.log('🔄 Navigating to AI page for new chat');
+        router.push({ 
+          path: '/agent/ai-agent', 
+          query: {} 
+        }).then(() => {
+          // Dispatch event to trigger new chat
+          window.dispatchEvent(new CustomEvent('newChatRequested'));
+        });
+      }
     };
 
     const loadChat = (chat) => {
@@ -257,7 +306,7 @@ export default {
       
       try {
         const token = localStorage.getItem("agentToken") || localStorage.getItem("adminToken");
-        const res = await fetch(`${globalVariable}/api/admin/chat/session/${chat.sessionId}`, {
+        const res = await fetch(`${API_BASE}/admin/chat/session/${chat.sessionId}`, {
           method: 'DELETE',
           headers: { 
             'Authorization': `Bearer ${token}`

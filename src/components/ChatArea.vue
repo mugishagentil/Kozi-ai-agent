@@ -371,9 +371,11 @@ const handleSuggestionClick = (message) => {
 .message-content { 
   max-width: 760px; 
   min-height: 20px; /* Reduced minimum height for streaming state */
+  width: fit-content; /* Make container fit content instead of expanding */
 }
 .bot-message .message-content { margin-right: auto; }
 .user-message .message-content { margin-left: auto; }
+
 
 /* Avatar spacing relative to bubble side */
 .bot-message .message-avatar { margin-right: 14px; margin-left: 0; }
@@ -391,15 +393,30 @@ const handleSuggestionClick = (message) => {
   word-break: break-word;
 }
 
-/* Reduced size for streaming AI responses */
+/* Streaming AI responses - container should start small and expand as content arrives */
 .message.streaming .message-content {
-  transform: scale(0.95);
-  transform-origin: left top;
+  width: fit-content; /* Constrain width to content */
+  max-width: 760px; /* Allow expansion up to maximum */
+  transition: max-width 0.2s ease-out; /* Smooth expansion as content arrives */
 }
 
-.message.streaming .formatted-content {
-  padding: 0.4rem 0.7rem; /* Reduced padding during streaming */
-  min-height: 30px; /* Smaller minimum height */
+/* When formatted-content is empty during streaming, hide it and make container small */
+.message.streaming .formatted-content:empty {
+  display: none; /* Hide empty formatted-content entirely */
+}
+
+
+/* Apply small max-width when content is minimal */
+.message.streaming .message-content:has(.formatted-content:empty) {
+  max-width: 350px !important; /* Small initial width when just typing indicator */
+}
+
+/* As content arrives, allow natural expansion */
+.message.streaming .formatted-content:not(:empty) {
+  padding: 0.65rem 0.9rem; /* Normal padding */
+  width: fit-content; /* Fit content width */
+  display: inline-block; /* Allow width to grow naturally */
+  max-width: 760px; /* Maximum width it can expand to */
 }
 
 .user-message .message-text {
@@ -428,10 +445,11 @@ const handleSuggestionClick = (message) => {
 
 /* Typing - Made smaller */
 .typing-indicator { 
-  display: flex; 
+  display: inline-flex; /* Changed to inline-flex to prevent container expansion */
   gap: 3px; 
   margin-top: 4px; 
   padding: 2px 0;
+  width: fit-content; /* Only take up space needed for dots */
 }
 .typing-dot {
   width: 4px; 

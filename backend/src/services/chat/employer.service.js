@@ -7,6 +7,7 @@ const {
 } = require('../../utils/chatUtils');
 const { PROMPT_TEMPLATES } = require('../../utils/prompts');
 const { fetchKoziWebsiteContext } = require('../../utils/fetchKoziWebsite');
+const { getCachedWebsiteContext, setCachedWebsiteContext } = require('../../utils/websiteCache');
 const { EmployerAgent, APIError, ValidationError } = require('../../utils/EmployerAgent');
 
 const agentInstances = new Map();
@@ -387,12 +388,27 @@ async function handleOpenAIChat(session, latestMessage, res) {
   let dbContext = '';
 
   if (!isSmallTalk) {
-    const [websiteResult, dbResult] = await Promise.allSettled([
-      fetchKoziWebsiteContext(),
+    // Try to get cached website context first (much faster)
+    const cachedContext = getCachedWebsiteContext();
+    
+    // Fetch website context and database context in parallel
+    // If cache exists, use it immediately; if not, fetch in background
+    const fetchPromises = [
+      cachedContext 
+        ? Promise.resolve(cachedContext)
+        : fetchKoziWebsiteContext().then(content => {
+            // Cache the result for future requests
+            if (content && content.length > 1000) {
+              setCachedWebsiteContext(content);
+            }
+            return content;
+          }),
       searchSimilarDocuments(latestMessage, 5),
-    ]);
+    ];
 
-    if (websiteResult.status === 'fulfilled' && websiteResult.value.length > 1000) {
+    const [websiteResult, dbResult] = await Promise.allSettled(fetchPromises);
+
+    if (websiteResult.status === 'fulfilled' && websiteResult.value && websiteResult.value.length > 1000) {
       websiteContext = websiteResult.value.length > MAX_WEBSITE_CONTEXT_CHARS
         ? websiteResult.value.slice(0, MAX_WEBSITE_CONTEXT_CHARS)
         : websiteResult.value;
@@ -407,24 +423,28 @@ async function handleOpenAIChat(session, latestMessage, res) {
 
   const systemPromptContent = PROMPT_TEMPLATES.employer(websiteContext, dbContext);
 
+  // Reduce number of messages for faster processing
   const previousMessages = await prisma.chatMessage.findMany({
     where: { sessionId: Number(sessionId) },
-    orderBy: { createdAt: 'asc' },
-    take: 20,
+    orderBy: { createdAt: 'desc' }, // Get most recent first
+    take: 8, // Reduced from 20 to 8 for faster queries
   });
 
   const messages = [
     { role: 'system', content: systemPromptContent },
-    ...previousMessages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+    ...previousMessages.reverse().slice(-6).map((m) => ({ role: m.role, content: m.content })), // Reduced from 10 to 6
     { role: 'user', content: latestMessage },
   ];
 
+  // Use faster model if available (gpt-4o-mini is much faster than gpt-4-turbo)
+  const model = process.env.OPENAI_CHAT_MODEL || process.env.OPENAI_FAST_MODEL || 'gpt-4o-mini';
+  
   const stream = await openai.chat.completions.create({
-    model: process.env.OPENAI_CHAT_MODEL || 'gpt-4-turbo',
+    model: model,
     messages,
     stream: true,
-    max_tokens: 1000,
-    temperature: 0.7,
+    max_tokens: 800, // Reduced for faster responses
+    temperature: 0.6, // Slightly lower for faster generation
   });
 
   let fullResponse = '';

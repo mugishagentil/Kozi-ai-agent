@@ -302,46 +302,31 @@ const initializeUser = async () => {
   }
 
   const startNewChat = async () => {
-    if (!currentUser.value) {
-      console.warn('No user available for new chat — initializing user')
-      try {
-        await initializeUser()
-      } catch (e) {
-        return
-      }
-      if (!currentUser.value) return
-    }
-
+    // Save current chat to history if it has messages
     if (currentSession.value && messages.value.length > 0) {
       saveCurrentChatToHistory()
     }
 
+    // Reset all state immediately - like other AI chatbots
     messages.value = []
     currentSession.value = null
     chatStarted.value = false
     error.value = null
     currentChatTitle.value = 'New Chat'
     clearLastActiveSession()
-    loading.value = true
-
-    try {
-      const data = await startSession(currentUser.value.users_id, null, getApiPrefix())
-      console.log('Session started:', data)
-
-      if (data?.data?.session_id) {
-        currentSession.value = data.data.session_id
-        chatStarted.value = true
-        saveLastActiveSession(data.data.session_id)
-      } else {
-        throw new Error('Invalid session response')
+    loading.value = false // Don't show loading for new chat - just show welcome screen
+    
+    // Initialize user if needed (but don't create session yet)
+    if (!currentUser.value) {
+      console.warn('No user available for new chat — initializing user')
+      try {
+        await initializeUser()
+      } catch (e) {
+        console.error('Failed to initialize user:', e)
       }
-    } catch (e) {
-      console.error('Failed to start session:', e)
-      error.value = 'Failed to start chat session'
-      addBotMessage('Sorry, I had trouble starting our chat. Please try again.')
-    } finally {
-      loading.value = false
     }
+    
+    console.log('✨ New chat started - showing welcome screen')
   }
 
   // 🚀 UPDATED: Streaming message handler

@@ -4,7 +4,6 @@
     <ChatbotComponent 
       :showCloseButton="false" 
       :embedded="true" 
-      :showSidebar="true"
       :userType="'admin'"
     />
   </div>

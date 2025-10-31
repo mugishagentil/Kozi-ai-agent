@@ -1,7 +1,7 @@
 <template>
   <IndexComponent>
     <div class="ai-chat-wrapper">
-      <ChatbotComponent :showCloseButton="false" :embedded="true" :showSidebar="true" />
+      <ChatbotComponent :showCloseButton="false" :embedded="true" />
     </div>
   </IndexComponent>
 </template>

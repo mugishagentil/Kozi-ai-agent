@@ -33,7 +33,7 @@
         <!-- Bot messages: keep wrapper for avatar alignment -->
         <template v-if="message.sender !== 'user'">
           <div class="message-avatar">
-            <div class="ai-text">AI</div>
+            <img src="/AI-Logo.png" alt="AI" class="ai-avatar-img" />
           </div>
           <div class="message-content">
             <div
@@ -75,9 +75,11 @@
         </template>
         
         <!-- User messages: NO wrapper, direct bubble -->
-        <div v-else class="message-text">
-          {{ message.text }}
-        </div>
+        <template v-else>
+          <div class="message-text">
+            {{ message.text }}
+          </div>
+        </template>
       </div>
 
       <div v-if="loading && messages.length === 0" class="loading-indicator">
@@ -353,6 +355,13 @@ const handleSuggestionClick = (message) => {
   box-shadow: 0 4px 12px rgba(0,0,0,.06);
   font-weight: 600;
   font-size: 0.85rem;
+  overflow: hidden;
+}
+.ai-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 .ai-text {
   color: #EA60A6;
@@ -377,6 +386,9 @@ const handleSuggestionClick = (message) => {
   line-height: 1.55;
   font-size: 0.98rem;
   transition: all 0.2s ease-in-out;
+  display: inline-block;
+  word-wrap: break-word;
+  word-break: break-word;
 }
 
 /* Reduced size for streaming AI responses */
@@ -400,6 +412,8 @@ const handleSuggestionClick = (message) => {
   margin-left: auto !important;
   margin-right: 0 !important;
   max-width: 760px !important;
+  display: inline-block !important;
+  width: auto !important;
 }
 .bot-message .formatted-content { 
   background: transparent;
@@ -449,7 +463,12 @@ body.dark .bot-message .formatted-content {
   padding: 0.3rem 0 0.3rem 0;
 }
 body.dark .user-message .message-text { background: linear-gradient(135deg, #c73e8a 0%, #a93272 100%); border-color: transparent; }
-body.dark .message-avatar { background: #1f2937; }
+body.dark .message-avatar { 
+  background: #1f2937; 
+}
+body.dark .ai-avatar-img {
+  opacity: 1;
+}
 body.dark .ai-text { color: #EA60A6; }
 
 /* Job Cards */

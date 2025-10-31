@@ -301,6 +301,26 @@ async function chat(req, res) {
   } catch (err) {
     console.error('POST /employer/chat error:', err);
     
+    // Handle Prisma connection errors
+    if (err.constructor?.name === 'PrismaClientInitializationError' || 
+        err.name === 'PrismaClientInitializationError') {
+      const errorMessage = 'Database connection error. Please try again in a moment.';
+      console.error('Database connection failed:', err.message);
+      
+      if (!res.headersSent) {
+        return res.status(503).json({ error: errorMessage });
+      } else {
+        res.write(`data: ${JSON.stringify({ 
+          content: errorMessage,
+          error: true,
+          code: 'DATABASE_ERROR'
+        })}\n\n`);
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+    
     // Handle specific error types with friendly messages
     if (err instanceof APIError || err instanceof ValidationError) {
       const friendlyMessage = getFriendlyErrorMessage(err);
@@ -458,6 +478,16 @@ async function getUserChatSessions(req, res) {
     res.json({ sessions: formatted });
   } catch (err) {
     console.error('GET /employer/chat/sessions error:', err);
+    
+    // Handle Prisma connection errors
+    if (err.constructor?.name === 'PrismaClientInitializationError' || 
+        err.name === 'PrismaClientInitializationError') {
+      console.error('Database connection failed:', err.message);
+      return res.status(503).json({ 
+        error: 'Database connection error. Please try again in a moment.' 
+      });
+    }
+    
     res.status(500).json({ error: 'We encountered an issue while loading your chat sessions. Please try again.' });
   }
 }

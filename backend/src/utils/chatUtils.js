@@ -1,5 +1,5 @@
 const OpenAI = require('openai');
-const { PrismaClient } = require('@prisma/client');
+const { prisma } = require('./prisma');
 const dotenv = require('dotenv');
 const { PROMPT_TEMPLATES } = require('./prompts');
 
@@ -9,7 +9,6 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 if (!OPENAI_API_KEY) throw new Error('Missing OPENAI_API_KEY');
 
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-const prisma = new PrismaClient();
 const titleModel = new OpenAI({ apiKey: OPENAI_API_KEY });
 
 function normalizeVector(vec) {

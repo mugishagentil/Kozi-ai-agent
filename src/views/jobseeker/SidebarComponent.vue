@@ -13,44 +13,112 @@
 
     <nav class="sidebar-nav">
       <ul>
-        <li v-for="item in menuItems" :key="item.link">
-          <!-- External Links -->
-          <a
-            v-if="item.external"
-            :href="item.link"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="sidebar-nav-link"
-          >
-            <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
-            {{ item.name }}
-            <span v-if="item.premium" class="premium-badge">Premium</span>
-          </a>
+        <li v-for="item in menuItems" :key="item.link || item.name">
+          <!-- AI Dropdown -->
+          <template v-if="item.name === 'AI'">
+            <a 
+              v-if="isProfileComplete || item.link === '/dashboard/ai-agent'"
+              class="sidebar-nav-link ai-menu-item"
+              @click.stop="handleAIClick(item)"
+              :class="{ 
+                'router-link-active': isActive(item.matchPrefix),
+                'dropdown-open': aiDropdownOpen 
+              }">
+              <span>
+                <img src="/AI-Logo.png" alt="AI" class="ai-sidebar-icon" />
+              </span>
+              <span class="hide-menu">{{ item.name }}</span>
+              <i class="ti ti-chevron-down ai-chevron ms-auto" 
+                 :class="{ 'rotated': aiDropdownOpen }"></i>
+            </a>
+            <a
+              v-else
+              @click="showAccessModal"
+              class="sidebar-nav-link disabled-link"
+              style="cursor: pointer;"
+            >
+              <span>
+                <img src="/AI-Logo.png" alt="AI" class="ai-sidebar-icon" />
+              </span>
+              <span class="hide-menu">{{ item.name }}</span>
+            </a>
+            <!-- AI Dropdown Content -->
+            <ul v-if="aiDropdownOpen && (isProfileComplete || item.link === '/dashboard/ai-agent')" class="ai-dropdown-content">
+              <!-- New Chat Button -->
+              <li>
+                <a class="new-chat-link" @click.prevent="handleNewChat">
+                  <i class="fa-regular fa-pen-to-square"></i>
+                  <span>New Chat</span>
+                </a>
+              </li>
+              <!-- History Section -->
+              <li class="history-section">
+                <div class="history-header">
+                  <span>HISTORY</span>
+                </div>
+                <div v-if="chatHistory.length > 0" class="chat-history-list">
+                  <div
+                    v-for="(chat, index) in chatHistory"
+                    :key="chat.sessionId || index"
+                    class="chat-history-item"
+                    :class="{ 'active': String(currentSessionId) === String(chat.sessionId) }"
+                    @click="loadChat(chat)"
+                  >
+                    <span class="chat-title">{{ chat.title || 'Untitled Chat' }}</span>
+                    <button 
+                      class="delete-chat-btn"
+                      @click.stop="deleteChat(chat)"
+                      title="Delete this chat"
+                    >
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+                <div v-else class="empty-history">
+                  <p>No chats yet</p>
+                </div>
+              </li>
+            </ul>
+          </template>
+          <!-- Regular Menu Items -->
+          <template v-else>
+            <!-- External Links -->
+            <a
+              v-if="item.external"
+              :href="item.link"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="sidebar-nav-link"
+            >
+              <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
+              {{ item.name }}
+              <span v-if="item.premium" class="premium-badge">Premium</span>
+            </a>
 
-          <!-- Regular Router Links -->
-          <router-link
-          v-else-if="isProfileComplete || item.link === '/dashboard/Edit-Profile' || item.link === '/dashboard/message' || item.link === '/dashboard/ai-agent' || item.name === 'Guidelines'" 
-          :to="item.link"
-          @click="$emit('close-sidebar')"
-          :class="[ { 'router-link-active': isActive(item.matchPrefix) } ]"
-        >
+            <!-- Regular Router Links -->
+            <router-link
+              v-else-if="isProfileComplete || item.link === '/dashboard/Edit-Profile' || item.link === '/dashboard/message' || item.link === '/dashboard/ai-agent' || item.name === 'Guidelines'" 
+              :to="item.link"
+              @click="$emit('close-sidebar')"
+              :class="[ { 'router-link-active': isActive(item.matchPrefix) } ]"
+            >
+              <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
+              {{ item.name }}
+              <span v-if="item.premium" class="premium-badge">Premium</span>
+            </router-link>
 
-            <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
-            {{ item.name }}
-            <span v-if="item.premium" class="premium-badge">Premium</span>
-          </router-link>
-
-          <!-- Disabled Links (Profile Incomplete) -->
-          <a
-            v-else
-            @click="showAccessModal"
-            class="sidebar-nav-link disabled-link"
-            style="cursor: pointer;"
-          >
-            <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
-            {{ item.name }}
-            <span v-if="item.premium" class="premium-badge">Premium</span>
-          </a>
+            <!-- Disabled Links (Profile Incomplete) -->
+            <a
+              v-else
+              @click="showAccessModal"
+              class="sidebar-nav-link disabled-link"
+              style="cursor: pointer;"
+            >
+              <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
+              {{ item.name }}
+              <span v-if="item.premium" class="premium-badge">Premium</span>
+            </a>
+          </template>
         </li>
       </ul>
     </nav>
@@ -87,7 +155,7 @@
 </template>
 
 <script>
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { globalVariable } from "@/global";
 
 export default {
@@ -101,13 +169,30 @@ export default {
       userId: "",
       isProfileComplete: false,
       showModal: false,
+      aiDropdownOpen: false,
+      chatHistory: [],
+      currentSessionId: null,
+      loadingHistory: false,
     };
   },
   mounted() {
     this.getUserIdAndCheckProfile();
+    // Set currentSessionId from route query
+    if (this.$route.query.sessionId) {
+      this.currentSessionId = String(this.$route.query.sessionId);
+    }
+    // Watch route to update currentSessionId
+    this.$watch(
+      () => this.$route.query.sessionId,
+      (sessionId) => {
+        this.currentSessionId = sessionId ? String(sessionId) : null;
+      },
+      { immediate: false }
+    );
   },
   setup() {
     const route = useRoute();
+    const router = useRouter();
 
     const menuItems = [
       {
@@ -181,6 +266,7 @@ export default {
 
     return {
       route,
+      router,
       menuItems,
       isActive,
     };
@@ -209,11 +295,97 @@ export default {
           });
           const checkData = await checkRes.json();
           this.isProfileComplete = checkData.isComplete;
+          
+          // Load chat history if profile is complete
+          if (this.isProfileComplete) {
+            this.loadChatHistory();
+          }
         } else {
           console.error("Unable to get user ID:", data.message);
         }
       } catch (err) {
         console.error("Error retrieving user info or checking profile:", err);
+      }
+    },
+    toggleAIDropdown() {
+      this.aiDropdownOpen = !this.aiDropdownOpen;
+      if (this.aiDropdownOpen && !this.chatHistory.length && this.userId) {
+        this.loadChatHistory();
+      }
+    },
+    handleAIClick(item) {
+      // Navigate to AI page if not already there
+      if (!this.isActive(item.matchPrefix)) {
+        this.$router.push(item.link);
+        this.$emit('close-sidebar');
+      }
+      // Toggle dropdown
+      this.toggleAIDropdown();
+    },
+    async loadChatHistory() {
+      if (!this.userId || this.loadingHistory) return;
+      
+      this.loadingHistory = true;
+      try {
+        const token = localStorage.getItem("employeeToken");
+        const res = await fetch(`${globalVariable}/api/chat/sessions?users_id=${this.userId}`, {
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          if (data.sessions && Array.isArray(data.sessions)) {
+            this.chatHistory = data.sessions.map(session => ({
+              sessionId: String(session.id),
+              title: session.title || 'New Chat',
+              createdAt: session.created_at || session.createdAt,
+              lastMessage: session.last_message || ''
+            })).sort((a, b) => {
+              const dateA = new Date(a.createdAt || 0);
+              const dateB = new Date(b.createdAt || 0);
+              return dateB - dateA;
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Error loading chat history:", err);
+      } finally {
+        this.loadingHistory = false;
+      }
+    },
+    handleNewChat() {
+      this.$emit('close-sidebar');
+      // Navigate without sessionId to trigger new chat
+      this.$router.push({ path: '/dashboard/ai-agent', query: {} });
+    },
+    loadChat(chat) {
+      this.$emit('close-sidebar');
+      this.$router.push({
+        path: '/dashboard/ai-agent',
+        query: { sessionId: chat.sessionId }
+      });
+    },
+    async deleteChat(chat) {
+      if (!confirm(`Delete "${chat.title || 'Untitled Chat'}"?`)) return;
+      
+      try {
+        const token = localStorage.getItem("employeeToken");
+        const res = await fetch(`${globalVariable}/api/chat/session/${chat.sessionId}`, {
+          method: 'DELETE',
+          headers: { 
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (res.ok) {
+          this.chatHistory = this.chatHistory.filter(c => c.sessionId !== chat.sessionId);
+        }
+      } catch (err) {
+        console.error("Error deleting chat:", err);
+        alert("Failed to delete chat. Please try again.");
       }
     },
     showAccessModal() {
@@ -556,5 +728,178 @@ export default {
   background: linear-gradient(135deg, #fff, #f8f9fa);
   color: #E960A6;
   border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* AI Dropdown Styles - matching admin sidebar */
+.ai-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.ai-menu-item .ai-chevron {
+  margin-left: auto;
+  transition: transform 0.3s ease;
+  font-size: 0.875rem;
+}
+
+.ai-menu-item .ai-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.ai-sidebar-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  object-fit: contain;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.hide-menu {
+  flex: 1;
+}
+
+.ms-auto {
+  margin-left: auto;
+}
+
+.ai-dropdown-content {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  background-color: #f8f9fa;
+  padding-left: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.ai-dropdown-content li {
+  margin: 0;
+}
+
+/* New Chat Link - Minimal Menu Item Style */
+.new-chat-link {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  color: #5a6a85;
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 400;
+  transition: all 0.3s ease;
+  position: relative;
+  cursor: pointer;
+  gap: 0.5rem;
+}
+
+.new-chat-link i {
+  font-size: 1.25rem;
+  margin-right: 0;
+}
+
+.new-chat-link:hover {
+  background-color: rgba(233, 96, 166, 0.1);
+  color: #E960A6;
+  text-decoration: none;
+  padding-left: 2rem;
+}
+
+/* History Section */
+.history-section {
+  padding: 0.5rem;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.history-header span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Chat History List */
+.chat-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.chat-history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  margin: 0 0.25rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  background: white;
+  border: 1px solid #e9ecef;
+}
+
+.chat-history-item:hover {
+  background: #f8f9fa;
+}
+
+.chat-history-item.active {
+  background: #E960A6;
+  color: white;
+  border-color: #E960A6;
+}
+
+.chat-title {
+  flex: 1;
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 0.5rem;
+}
+
+.delete-chat-btn {
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  padding: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.chat-history-item:hover .delete-chat-btn {
+  opacity: 1;
+}
+
+.chat-history-item.active .delete-chat-btn {
+  color: white;
+  opacity: 1;
+}
+
+.delete-chat-btn:hover {
+  color: #E960A6;
+}
+
+.chat-history-item.active .delete-chat-btn:hover {
+  color: #ffb3d9;
+}
+
+/* Empty History */
+.empty-history {
+  padding: 1rem;
+  text-align: center;
+  color: #999;
+  font-size: 0.875rem;
+}
+
+.empty-history p {
+  margin: 0;
 }
 </style>

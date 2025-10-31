@@ -1,8 +1,6 @@
-const { PrismaClient } = require('@prisma/client');
+const { prisma } = require('../utils/prisma');
 const { ChatOpenAI } = require('@langchain/openai');
 const { SqlAgent } = require('../utils/JobseekerAgent');
-
-const prisma = new PrismaClient();
 
 // ============ SQL EXTRACTION ============
 function extractSqlFromText(text) {

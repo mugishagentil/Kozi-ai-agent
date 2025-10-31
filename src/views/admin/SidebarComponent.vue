@@ -43,6 +43,59 @@
                 </a>
               </template>
 
+              <!-- AI Dropdown -->
+              <template v-else-if="item.name === 'AI'">
+                <div class="sidebar-link ai-menu-item cursor-pointer" 
+                     @click.stop="handleAIClick(item)"
+                     :class="{ 
+                       active: isMenuItemActive(item) && !aiDropdownOpen,
+                       'dropdown-open': aiDropdownOpen 
+                     }">
+                  <span>
+                    <img src="/AI-Logo.png" alt="AI" class="ai-sidebar-icon" />
+                  </span>
+                  <span class="hide-menu">{{ item.name }}</span>
+                  <i class="ti ti-chevron-down ai-chevron ms-auto" 
+                     :class="{ 'rotated': aiDropdownOpen }"></i>
+                </div>
+                <ul v-if="aiDropdownOpen" class="submenu ai-dropdown-content">
+                  <!-- New Chat Link -->
+                  <li>
+                    <a class="new-chat-link" @click.prevent="handleNewChat">
+                      <i class="fa-regular fa-pen-to-square"></i>
+                      <span>New Chat</span>
+                    </a>
+                  </li>
+                  <!-- History Section -->
+                  <li class="history-section">
+                    <div class="history-header">
+                      <span>HISTORY</span>
+                    </div>
+                    <div v-if="chatHistory.length > 0" class="chat-history-list">
+                      <div
+                        v-for="(chat, index) in chatHistory"
+                        :key="chat.sessionId || index"
+                        class="chat-history-item"
+                        :class="{ 'active': String(currentSessionId) === String(chat.sessionId) }"
+                        @click="loadChat(chat)"
+                      >
+                        <span class="chat-title">{{ chat.title || 'Untitled Chat' }}</span>
+                        <button 
+                          class="delete-chat-btn"
+                          @click.stop="deleteChat(chat)"
+                          title="Delete this chat"
+                        >
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
+                    </div>
+                    <div v-else class="empty-history">
+                      <p>No chats yet</p>
+                    </div>
+                  </li>
+                </ul>
+              </template>
+
               <!-- Internal Vue Router Link -->
               <template v-else>
                 <router-link :to="item.link" class="sidebar-link" :class="{ active: isMenuItemActive(item) }">
@@ -68,6 +121,7 @@
 
 <script>
 import '@/assets/css/styles.min.css';
+import { globalVariable } from '@/global';
 
 export default {
   name: "SidebarNavigation",
@@ -76,6 +130,11 @@ export default {
       sidebarVisible: true,
       openDropdown: null,
       isMobile: false,
+      aiDropdownOpen: false,
+      chatHistory: [],
+      currentSessionId: null,
+      loadingHistory: false,
+      userId: null,
       menuItems: [
         {
           name: "Dashboard",
@@ -211,6 +270,21 @@ export default {
   mounted() {
     this.checkIfMobile();
     window.addEventListener('resize', this.checkIfMobile);
+    this.getUserId();
+
+    // Set currentSessionId from route query
+    if (this.$route.query.sessionId) {
+      this.currentSessionId = String(this.$route.query.sessionId);
+    }
+    
+    // Watch route to update currentSessionId
+    this.$watch(
+      () => this.$route.query.sessionId,
+      (sessionId) => {
+        this.currentSessionId = sessionId ? String(sessionId) : null;
+      },
+      { immediate: false }
+    );
 
     this.menuItems.forEach(item => {
       if (item.children && this.isMainMenuActive(item)) {
@@ -285,12 +359,117 @@ export default {
     checkIfMobile() {
       this.isMobile = window.innerWidth <= 768;
       this.sidebarVisible = !this.isMobile;
+    },
+    async getUserId() {
+      try {
+        const token = localStorage.getItem("adminToken");
+        if (!token) return;
+        
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        const userEmail = payload.email;
+        
+        const res = await fetch(`${globalVariable}/get_user_id_by_email/${userEmail}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        const data = await res.json();
+        if (res.ok && data.users_id) {
+          this.userId = data.users_id;
+        }
+      } catch (err) {
+        console.error("Error getting user ID:", err);
+      }
+    },
+    toggleAIDropdown() {
+      this.aiDropdownOpen = !this.aiDropdownOpen;
+      if (this.aiDropdownOpen && !this.chatHistory.length && this.userId) {
+        this.loadChatHistory();
+      }
+    },
+    handleAIClick(item) {
+      // Navigate to AI page if not already there
+      if (!this.isMenuItemActive(item)) {
+        this.$router.push(item.link);
+      }
+      // Toggle dropdown
+      this.toggleAIDropdown();
+    },
+    async loadChatHistory() {
+      if (!this.userId || this.loadingHistory) return;
+      
+      this.loadingHistory = true;
+      try {
+        const token = localStorage.getItem("adminToken");
+        const res = await fetch(`${globalVariable}/api/admin/chat/sessions?users_id=${this.userId}`, {
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          if (data.sessions && Array.isArray(data.sessions)) {
+            this.chatHistory = data.sessions.map(session => ({
+              sessionId: String(session.id),
+              title: session.title || 'New Chat',
+              createdAt: session.created_at || session.createdAt,
+              lastMessage: session.last_message || ''
+            })).sort((a, b) => {
+              const dateA = new Date(a.createdAt || 0);
+              const dateB = new Date(b.createdAt || 0);
+              return dateB - dateA;
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Error loading chat history:", err);
+      } finally {
+        this.loadingHistory = false;
+      }
+    },
+    handleNewChat() {
+      this.$router.push({ path: '/admin/ai-agent', query: {} });
+    },
+    loadChat(chat) {
+      this.$router.push({
+        path: '/admin/ai-agent',
+        query: { sessionId: chat.sessionId }
+      });
+    },
+    async deleteChat(chat) {
+      if (!confirm(`Delete "${chat.title || 'Untitled Chat'}"?`)) return;
+      
+      try {
+        const token = localStorage.getItem("adminToken");
+        const res = await fetch(`${globalVariable}/api/admin/chat/session/${chat.sessionId}`, {
+          method: 'DELETE',
+          headers: { 
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (res.ok) {
+          this.chatHistory = this.chatHistory.filter(c => c.sessionId !== chat.sessionId);
+        }
+      } catch (err) {
+        console.error("Error deleting chat:", err);
+        alert("Failed to delete chat. Please try again.");
+      }
     }
   },
 };
 </script>
 
 <style scoped>
+.ai-sidebar-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-right: 8px;
+  object-fit: contain;
+  display: inline-block;
+}
+
 .sidebar-link:hover {
   background-color: #E960A6 !important;
   color: white !important;
@@ -372,5 +551,165 @@ export default {
   background-color: #E960A6 !important;
   color: white !important;
   font-weight: bold;
+}
+
+/* AI Dropdown Styles */
+.ai-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  cursor: pointer;
+}
+
+.ai-menu-item .ai-chevron {
+  margin-left: auto;
+  transition: transform 0.3s ease;
+  font-size: 0.875rem;
+}
+
+.ai-menu-item .ai-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.ai-sidebar-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  object-fit: contain;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.ms-auto {
+  margin-left: auto;
+}
+
+.hide-menu {
+  flex: 1;
+}
+
+/* New Chat Link */
+.new-chat-link {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  color: #5a6a85;
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 400;
+  transition: all 0.3s ease;
+  position: relative;
+  cursor: pointer;
+  gap: 0.5rem;
+}
+
+.new-chat-link i {
+  font-size: 1.25rem;
+  margin-right: 0;
+}
+
+.new-chat-link:hover {
+  background-color: rgba(233, 96, 166, 0.1);
+  color: #E960A6;
+  text-decoration: none;
+  padding-left: 2rem;
+}
+
+/* History Section */
+.history-section {
+  padding: 0.5rem;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.history-header span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Chat History List */
+.chat-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.chat-history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  margin: 0 0.25rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  background: white;
+  border: 1px solid #e9ecef;
+}
+
+.chat-history-item:hover {
+  background: #f8f9fa;
+}
+
+.chat-history-item.active {
+  background: #E960A6;
+  color: white;
+  border-color: #E960A6;
+}
+
+.chat-title {
+  flex: 1;
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 0.5rem;
+}
+
+.delete-chat-btn {
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  padding: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.chat-history-item:hover .delete-chat-btn {
+  opacity: 1;
+}
+
+.chat-history-item.active .delete-chat-btn {
+  color: white;
+  opacity: 1;
+}
+
+.delete-chat-btn:hover {
+  color: #E960A6;
+}
+
+.chat-history-item.active .delete-chat-btn:hover {
+  color: #ffb3d9;
+}
+
+/* Empty History */
+.empty-history {
+  padding: 1rem;
+  text-align: center;
+  color: #999;
+  font-size: 0.875rem;
+}
+
+.empty-history p {
+  margin: 0;
 }
 </style>

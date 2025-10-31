@@ -309,7 +309,8 @@ export default {
     },
     toggleAIDropdown() {
       this.aiDropdownOpen = !this.aiDropdownOpen;
-      if (this.aiDropdownOpen && !this.chatHistory.length && this.userId) {
+      // Always reload history when opening dropdown to ensure it's up to date
+      if (this.aiDropdownOpen && this.userId) {
         this.loadChatHistory();
       }
     },

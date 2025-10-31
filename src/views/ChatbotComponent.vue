@@ -89,11 +89,13 @@ export default {
       messages,
       loading,
       currentChatTitle,
+      history,
       
       // Actions
       startNewChat: originalStartNewChat,
       sendMessage: originalSendMessage,
-      sendSuggestion: originalSendSuggestion
+      sendSuggestion: originalSendSuggestion,
+      loadChatHistory
     } = useKoziChat()
 
     // Enhanced startNewChat that sets isNewChat to true
@@ -105,21 +107,67 @@ export default {
     // Watch route query to detect new chat or session load
     watch(
       () => route.query.sessionId,
-      (sessionId, oldSessionId) => {
+      async (sessionId, oldSessionId) => {
+        console.log('🔄 Route sessionId changed:', { oldSessionId, sessionId, path: route.path, fullPath: route.fullPath })
+        
+        // If we have a sessionId in the URL, load that chat
+        if (sessionId) {
+          console.log('📂 Loading chat from URL sessionId:', sessionId)
+          isNewChat.value = false
+          
+          // Find the session in history
+          const sessionInHistory = history.value.find(
+            h => String(h.sessionId) === String(sessionId)
+          )
+          
+          if (sessionInHistory) {
+            try {
+              await loadChatHistory(sessionInHistory)
+              console.log('✅ Loaded chat from history:', sessionInHistory)
+            } catch (error) {
+              console.error('❌ Failed to load chat from URL:', error)
+              // If loading fails, show welcome screen
+              isNewChat.value = true
+              startNewChat()
+            }
+          } else {
+            console.log('⚠️ Session not found in history, will try to load from backend')
+            // Try to load even if not in history (might be from direct URL)
+            try {
+              await loadChatHistory({ sessionId: String(sessionId) })
+              isNewChat.value = false
+            } catch (error) {
+              console.error('❌ Failed to load chat:', error)
+              isNewChat.value = true
+              startNewChat()
+            }
+          }
+          return
+        }
+        
         // If sessionId was removed (went from having one to not having one), start new chat
         if (oldSessionId && !sessionId) {
           console.log('🔄 SessionId removed from URL, starting new chat')
           isNewChat.value = true
           startNewChat()
+          return
         }
+        
         // If we're on AI agent page without sessionId and have messages, reset
         if (!sessionId && messages.value.length > 0) {
           console.log('🔄 No sessionId in URL but messages exist, resetting to welcome screen')
           isNewChat.value = true
           startNewChat()
+          return
+        }
+        
+        // If no sessionId and no messages, ensure welcome screen shows
+        if (!sessionId && messages.value.length === 0 && !isNewChat.value) {
+          console.log('🆕 No sessionId and no messages, ensuring welcome screen')
+          isNewChat.value = true
         }
       },
-      { immediate: false }
+      { immediate: true }
     )
 
     // Enhanced sendMessage that sets isNewChat to false when sending first message
@@ -140,14 +188,25 @@ export default {
 
     // Check initial screen size on component mount
     onMounted(() => {
+      console.log('🆕 ChatbotComponent mounted:', { 
+        hasSessionId: !!route.query.sessionId, 
+        sessionId: route.query.sessionId,
+        messageCount: messages.value.length,
+        path: route.path,
+        fullPath: route.fullPath
+      })
+      
       // If no sessionId in route query, ensure we show welcome screen
       if (!route.query.sessionId) {
-        console.log('🆕 No sessionId in URL on mount, starting new chat')
+        console.log('🆕 No sessionId in URL on mount, ensuring welcome screen')
         isNewChat.value = true
         // Only reset if we have messages (don't interfere with initial load)
         if (messages.value.length > 0) {
           startNewChat()
         }
+      } else {
+        // If we have a sessionId, we're loading an existing chat
+        isNewChat.value = false
       }
       
       // Auto-send prefilled message if provided

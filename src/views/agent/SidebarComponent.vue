@@ -167,7 +167,8 @@ export default {
 
     const toggleAIDropdown = () => {
       aiDropdownOpen.value = !aiDropdownOpen.value;
-      if (aiDropdownOpen.value && !chatHistory.value.length && userId.value) {
+      // Always reload history when opening dropdown to ensure it's up to date
+      if (aiDropdownOpen.value && userId.value) {
         loadChatHistory();
       }
     };

@@ -12,17 +12,6 @@ function saveLastActiveSession(sessionId) {
   }))
 }
 
-// Get last active session from localStorage
-function getLastActiveSession() {
-  try {
-    const data = localStorage.getItem(LAST_ACTIVE_SESSION_KEY)
-    return data ? JSON.parse(data) : null
-  } catch (e) {
-    console.error('Failed to load last active session:', e)
-    return null
-  }
-}
-
 // Clear last active session
 function clearLastActiveSession() {
   localStorage.removeItem(LAST_ACTIVE_SESSION_KEY)
@@ -120,67 +109,48 @@ export function useKoziChat() {
     }
   }
 
-  // Load history from localStorage AND backend on mount
+  // Load history from backend on mount (source of truth)
   onMounted(async () => {
     // Update role detection on mount
     updateRoleFromURL()
     
-    const savedHistory = localStorage.getItem('kozi-chat-history')
-    if (savedHistory) {
-      try {
-        const parsedHistory = JSON.parse(savedHistory)
-        // Ensure all history items have proper timestamps
-        history.value = parsedHistory.map(item => ({
-          ...item,
-          timestamp: item.timestamp || new Date(item.createdAt).getTime() || Date.now(),
-          createdAt: item.createdAt || new Date(item.timestamp) || new Date()
-        }))
-        console.log('Loaded localStorage chat history:', history.value)
-      } catch (e) {
-        console.warn('Failed to load localStorage chat history:', e)
-        history.value = []
-      }
-    } else {
-      console.log('No saved localStorage chat history found')
-      history.value = []
-    }
-    
+    // Initialize user first
     await initializeUser()
     
+    // Always prioritize loading from backend (source of truth)
     if (currentUser.value) {
       await loadHistoryFromBackend()
-      
-      // 🆕 AUTO-RESTORE LAST ACTIVE SESSION
-      const lastActive = getLastActiveSession()
-      console.log('🔍 Last active session check:', lastActive)
-      
-      if (lastActive?.sessionId) {
-        // Find this session in history
-        const sessionInHistory = history.value.find(
-          h => h.sessionId === lastActive.sessionId
-        )
-        
-        console.log('🔍 Session in history check:', sessionInHistory)
-        console.log('🔍 Available history:', history.value)
-        
-        if (sessionInHistory) {
-          console.log('🔄 Restoring last active session:', sessionInHistory)
-          // Move the loadChatHistory call to after all functions are defined
-          setTimeout(async () => {
-            try {
-              await loadChatHistory(sessionInHistory)
-            } catch (error) {
-              console.error('❌ Failed to restore session:', error)
-            }
-          }, 100)
-        } else {
-          console.log('⚠️ Last active session not found in history, clearing')
-          clearLastActiveSession()
+    } else {
+      // Fallback to localStorage if user not initialized yet
+      const savedHistory = localStorage.getItem('kozi-chat-history')
+      if (savedHistory) {
+        try {
+          const parsedHistory = JSON.parse(savedHistory)
+          history.value = parsedHistory.map(item => ({
+            ...item,
+            timestamp: item.timestamp || new Date(item.createdAt).getTime() || Date.now(),
+            createdAt: item.createdAt || new Date(item.timestamp) || new Date()
+          }))
+          console.log('Loaded localStorage chat history (fallback):', history.value)
+        } catch (e) {
+          console.warn('Failed to load localStorage chat history:', e)
+          history.value = []
         }
       } else {
-        console.log('ℹ️ No last active session found')
+        history.value = []
       }
+      
+      // Try loading from backend once user is available
+      setTimeout(async () => {
+        if (currentUser.value) {
+          await loadHistoryFromBackend()
+        }
+      }, 1000)
     }
+    
+    // Note: We no longer auto-restore the last active session
+    // Chat sessions should only be loaded when explicitly requested via URL query parameter
+    // This prevents conversations from auto-opening after refresh or logout/login
   })
 
   watch(
@@ -259,13 +229,21 @@ const initializeUser = async () => {
     return title || 'New Chat'
   }
 
-  const saveCurrentChatToHistory = () => {
+  const saveCurrentChatToHistory = async () => {
     if (!currentSession.value || messages.value.length === 0) return
 
     const firstUserMessage = messages.value.find((m) => m.sender === 'user')?.text
-    const finalTitle = firstUserMessage
-      ? generateChatTitle(firstUserMessage)
-      : currentChatTitle.value
+    
+    // Use the current title if available and meaningful, otherwise generate from first message
+    let finalTitle = currentChatTitle.value
+    if (!finalTitle || finalTitle === 'New Chat') {
+      if (firstUserMessage) {
+        // Generate a meaningful title from the first user message
+        finalTitle = generateChatTitle(firstUserMessage)
+      } else {
+        finalTitle = 'New Chat'
+      }
+    }
 
     const lastMessage = messages.value[messages.value.length - 1]
     let cleanLastMessage = ''
@@ -295,8 +273,22 @@ const initializeUser = async () => {
       createdAt: new Date(currentTimestamp)
     }
 
+    // Update local history immediately
     const filtered = history.value.filter((item) => item.sessionId !== currentSession.value)
     history.value = [chatEntry, ...filtered].slice(0, 50)
+    localStorage.setItem('kozi-chat-history', JSON.stringify(history.value))
+    
+    // Reload from backend to ensure sync (backend is source of truth)
+    if (currentUser.value) {
+      try {
+        // Small delay to ensure backend has saved the message
+        setTimeout(async () => {
+          await loadHistoryFromBackend()
+        }, 500)
+      } catch (e) {
+        console.warn('Failed to sync history with backend:', e)
+      }
+    }
     
     console.log('Saved chat to history:', chatEntry)
   }
@@ -313,7 +305,7 @@ const initializeUser = async () => {
     chatStarted.value = false
     error.value = null
     currentChatTitle.value = 'New Chat'
-    clearLastActiveSession()
+    clearLastActiveSession() // Clear last active session so it doesn't auto-restore
     loading.value = false // Don't show loading for new chat - just show welcome screen
     
     // Initialize user if needed (but don't create session yet)
@@ -326,7 +318,7 @@ const initializeUser = async () => {
       }
     }
     
-    console.log('✨ New chat started - showing welcome screen')
+    console.log('✨ New chat started - showing welcome screen (last active session cleared)')
   }
 
   // 🚀 UPDATED: Streaming message handler
@@ -339,15 +331,22 @@ const initializeUser = async () => {
 
     // Auto-start chat if needed
     if (!chatStarted.value || !currentSession.value) {
-      console.log('Auto-starting chat session...')
+      console.log('Auto-starting chat session with first message:', text)
       try {
         loading.value = true
-        const data = await startSession(currentUser.value.users_id, null, getApiPrefix())
+        // Pass the actual first message so backend can generate a meaningful title
+        const data = await startSession(currentUser.value.users_id, text, getApiPrefix())
 
         if (data?.data?.session_id) {
           currentSession.value = data.data.session_id
           chatStarted.value = true
           saveLastActiveSession(data.data.session_id)
+          
+          // Update title if backend provided one
+          if (data?.data?.title) {
+            currentChatTitle.value = data.data.title
+            console.log('✅ Received title from backend:', data.data.title)
+          }
         } else {
           throw new Error('Failed to start session')
         }
@@ -366,11 +365,6 @@ const initializeUser = async () => {
 
     const userMessages = messages.value.filter(m => m.sender === 'user')
     const isFirstUserMessage = userMessages.length === 1
-
-    if (isFirstUserMessage) {
-      const newTitle = generateChatTitle(text)
-      currentChatTitle.value = newTitle
-    }
 
     // Create empty placeholder for streaming response
     const botMessageIndex = messages.value.length
@@ -409,14 +403,24 @@ const initializeUser = async () => {
         },
         (title) => {
           if (title) {
+            console.log('📝 Received title from backend:', title)
             currentChatTitle.value = title
             
+            // Update in history if session exists
             const sessionIndex = history.value.findIndex(
-              h => h.sessionId === currentSession.value
+              h => String(h.sessionId) === String(currentSession.value)
             );
             if (sessionIndex !== -1) {
               history.value[sessionIndex].title = title;
-              localStorage.setItem('kozi_chat_history', JSON.stringify(history.value));
+              localStorage.setItem('kozi-chat-history', JSON.stringify(history.value));
+              console.log('✅ Updated title in history:', title)
+            } else {
+              // If not in history yet, reload from backend
+              if (currentUser.value) {
+                setTimeout(async () => {
+                  await loadHistoryFromBackend()
+                }, 500)
+              }
             }
           }
         },
@@ -424,6 +428,25 @@ const initializeUser = async () => {
       )
 
       messages.value[botMessageIndex].streaming = false
+      
+      // Save to history after message completes (ensures persistence)
+      if (currentSession.value && messages.value.length > 0) {
+        saveCurrentChatToHistory()
+        
+        // Reload history from backend to get updated title and ensure sidebar syncs
+        // Also dispatch event to notify sidebars to reload
+        if (currentUser.value) {
+          setTimeout(async () => {
+            console.log('🔄 Reloading history from backend after message')
+            await loadHistoryFromBackend()
+            
+            // Dispatch custom event to notify sidebar components
+            window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
+              detail: { sessionId: currentSession.value }
+            }))
+          }, 1000)
+        }
+      }
 
     } catch (e) {
       console.error('Failed to send message:', e)
@@ -502,9 +525,10 @@ const initializeUser = async () => {
 
   async function getUserChatSessions(users_id) {
     const url = `${API_BASE}${getApiPrefix()}/sessions?users_id=${users_id}`
+    console.log('📋 Fetching chat sessions from:', url)
     const res = await fetch(url, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
     })
     
     if (!res.ok) {
@@ -513,17 +537,25 @@ const initializeUser = async () => {
       throw new Error(`getUserChatSessions failed: ${res.status}`)
     }
     
-    return await res.json()
+    const data = await res.json()
+    console.log('📋 Received chat sessions:', data)
+    return data
   }
 
   const loadHistoryFromBackend = async () => {
-    if (!currentUser.value) return
+    if (!currentUser.value) {
+      console.warn('⚠️ Cannot load history: no current user')
+      return
+    }
     
     try {
-      console.log('Loading chat history from backend for user:', currentUser.value.users_id)
+      console.log('📚 Loading chat history from backend for user:', currentUser.value.users_id)
       const data = await getUserChatSessions(currentUser.value.users_id)
       
+      console.log('📚 Backend returned data:', data)
+      
       if (data?.sessions && Array.isArray(data.sessions)) {
+        console.log(`✅ Found ${data.sessions.length} chat sessions`)
         const backendHistory = data.sessions.map(session => {
           const lastMessage = session.messages && session.messages.length > 0 
             ? session.messages[session.messages.length - 1]
@@ -560,10 +592,12 @@ const initializeUser = async () => {
         backendHistory.sort((a, b) => b.timestamp - a.timestamp)
         
         history.value = backendHistory
-        console.log('Loaded backend chat history:', backendHistory)
+        console.log('✅ Loaded backend chat history:', backendHistory.length, 'sessions')
+        console.log('📋 Sessions:', backendHistory.map(s => ({ id: s.sessionId, title: s.title })))
         localStorage.setItem('kozi-chat-history', JSON.stringify(backendHistory))
       } else {
-        console.log('No chat sessions found in backend')
+        console.warn('⚠️ No chat sessions found in backend response. Data structure:', data)
+        history.value = []
       }
     } catch (e) {
       console.error('Failed to load chat history from backend:', e)

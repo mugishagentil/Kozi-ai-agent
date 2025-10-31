@@ -97,7 +97,7 @@
 
 <script>
 import { useRoute, useRouter } from 'vue-router';
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { globalVariable } from '../../global';
 
 export default {
@@ -178,7 +178,8 @@ export default {
 
     const toggleAIDropdown = () => {
       aiDropdownOpen.value = !aiDropdownOpen.value;
-      if (aiDropdownOpen.value && !chatHistory.value.length && userId.value) {
+      // Always reload history when opening dropdown to ensure it's up to date
+      if (aiDropdownOpen.value && userId.value) {
         loadChatHistory();
       }
     };
@@ -216,21 +217,38 @@ export default {
     };
 
     const loadChatHistory = async () => {
-      if (!userId.value || loadingHistory.value) return;
+      if (!userId.value || loadingHistory.value) {
+        console.log('⚠️ Cannot load history:', { userId: userId.value, loading: loadingHistory.value });
+        return;
+      }
       
       loadingHistory.value = true;
       try {
         const token = localStorage.getItem("employerToken");
-        const res = await fetch(`${globalVariable}/api/employer/chat/sessions?users_id=${userId.value}`, {
+        if (!token) {
+          console.warn('⚠️ No token available for loading chat history');
+          loadingHistory.value = false;
+          return;
+        }
+        
+        const url = `${globalVariable}/api/employer/chat/sessions?users_id=${userId.value}`;
+        console.log('📋 Loading chat history from:', url);
+        
+        const res = await fetch(url, {
           headers: { 
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           }
         });
         
+        console.log('📋 Chat history response status:', res.status);
+        
         if (res.ok) {
           const data = await res.json();
+          console.log('📋 Chat history response data:', data);
+          
           if (data.sessions && Array.isArray(data.sessions)) {
+            console.log(`✅ Found ${data.sessions.length} chat sessions`);
             chatHistory.value = data.sessions.map(session => ({
               sessionId: String(session.id),
               title: session.title || 'New Chat',
@@ -241,10 +259,20 @@ export default {
               const dateB = new Date(b.createdAt || 0);
               return dateB - dateA;
             });
+            console.log('✅ Loaded chat history:', chatHistory.value.length, 'sessions');
+            console.log('📋 Session titles:', chatHistory.value.map(s => ({ id: s.sessionId, title: s.title })));
+          } else {
+            console.warn('⚠️ No sessions array in response:', data);
+            chatHistory.value = [];
           }
+        } else {
+          const errorText = await res.text();
+          console.error('❌ Error loading chat history:', res.status, errorText);
+          chatHistory.value = [];
         }
       } catch (err) {
-        console.error("Error loading chat history:", err);
+        console.error("❌ Error loading chat history:", err);
+        chatHistory.value = [];
       } finally {
         loadingHistory.value = false;
       }
@@ -252,8 +280,11 @@ export default {
 
     const handleNewChat = () => {
       emit('close-sidebar');
-      // Navigate without sessionId to trigger new chat
-      router.push({ path: '/employer/ai-agent', query: {} });
+      // Navigate to new chat - clear sessionId explicitly
+      router.push({ 
+        path: '/employer/ai-agent', 
+        query: {} 
+      });
     };
 
     const loadChat = (chat) => {
@@ -300,7 +331,22 @@ export default {
       if (route.query.sessionId) {
         currentSessionId.value = String(route.query.sessionId);
       }
+      
+      // Listen for chat history updates
+      window.addEventListener('chatHistoryUpdated', handleChatHistoryUpdate);
     });
+    
+    onUnmounted(() => {
+      window.removeEventListener('chatHistoryUpdated', handleChatHistoryUpdate);
+    });
+    
+    const handleChatHistoryUpdate = () => {
+      // Reload chat history when a new message is sent (even if dropdown is closed)
+      if (userId.value) {
+        console.log('📢 Chat history updated event received, reloading...');
+        loadChatHistory();
+      }
+    };
 
     return {
       route,
@@ -315,6 +361,7 @@ export default {
       handleNewChat,
       loadChat,
       deleteChat,
+      handleChatHistoryUpdate,
     };
   },
 };

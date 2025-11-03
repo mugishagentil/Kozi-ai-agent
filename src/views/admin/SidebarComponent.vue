@@ -120,13 +120,26 @@
       <slot></slot>
     </div>
   </div>
+  
+  <!-- Delete Chat Modal -->
+  <DeleteChatModal
+    :visible="showDeleteModal"
+    :chat-title="chatToDelete?.title || 'Untitled Chat'"
+    :deleting="deletingChat"
+    @confirm="confirmDelete"
+    @cancel="cancelDelete"
+  />
 </template>
 
 <script>
 import '@/assets/css/styles.min.css';
+import DeleteChatModal from '@/components/DeleteChatModal.vue';
 
 export default {
   name: "SidebarNavigation",
+  components: {
+    DeleteChatModal
+  },
   data() {
     return {
       sidebarVisible: true,
@@ -137,6 +150,9 @@ export default {
       currentSessionId: null,
       loadingHistory: false,
       userId: null,
+      showDeleteModal: false,
+      chatToDelete: null,
+      deletingChat: false,
       menuItems: [
         {
           name: "Dashboard",
@@ -269,14 +285,27 @@ export default {
       ],
     };
   },
-  mounted() {
+  computed: {
+    apiBase() {
+      return process.env.VUE_APP_API_BASE || 'http://localhost:5050/api';
+    }
+  },
+  async mounted() {
     this.checkIfMobile();
     window.addEventListener('resize', this.checkIfMobile);
-    this.getUserId();
+    
+    // Initialize user ID and load history
+    await this.getUserId();
 
     // Set currentSessionId from route query
     if (this.$route.query.sessionId) {
       this.currentSessionId = String(this.$route.query.sessionId);
+    }
+    
+    // Load history if we already have userId (from previous session)
+    if (this.userId && this.aiDropdownOpen) {
+      console.log('📋 Admin Sidebar: Loading initial history on mount');
+      await this.loadChatHistory();
     }
     
     // Watch route to update currentSessionId
@@ -368,29 +397,82 @@ export default {
     },
     async getUserId() {
       try {
-        const token = localStorage.getItem("adminToken");
-        if (!token) return;
+        // Try all tokens (same priority as composable) - adminToken might not work with external API
+        const employeeToken = localStorage.getItem("employeeToken");
+        const employerToken = localStorage.getItem("employerToken");
+        const adminToken = localStorage.getItem("adminToken");
+        const token = employeeToken || employerToken || adminToken;
         
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        const userEmail = payload.email;
+        if (!token) {
+          console.warn('⚠️ Admin Sidebar: No token found (tried adminToken, employerToken, employeeToken)');
+          return;
+        }
         
-        const res = await fetch(`${this.apiBase}/get_user_id_by_email/${userEmail}`, {
-          headers: { Authorization: `Bearer ${token}` }
+        // Get email from localStorage or token payload
+        let userEmail = localStorage.getItem('userEmail');
+        if (!userEmail) {
+          try {
+            const payload = JSON.parse(atob(token.split(".")[1]));
+            userEmail = payload.email;
+          } catch (e) {
+            console.error('❌ Admin Sidebar: Could not decode token:', e);
+            return;
+          }
+        }
+        
+        console.log('📧 Admin Sidebar: Getting user ID for email:', userEmail);
+        console.log('🔑 Admin Sidebar: Using token type:', employeeToken ? 'employee' : employerToken ? 'employer' : 'admin');
+
+        // Get user ID from external API (same as composable)
+        const userIdUrl = `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`;
+        console.log('📧 Admin Sidebar: Fetching userId from:', userIdUrl);
+        
+        const res = await fetch(userIdUrl, {
+          headers: { 
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}` 
+          },
         });
         
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error('❌ Admin Sidebar: User ID fetch failed:', res.status, errorText);
+          throw new Error(`Failed to fetch user ID: ${res.status}`);
+        }
+        
         const data = await res.json();
-        if (res.ok && data.users_id) {
+        console.log('📋 Admin Sidebar: User ID response:', data);
+
+        if (data.users_id) {
           this.userId = data.users_id;
+          console.log('✅ Admin Sidebar: Got user ID:', this.userId);
+          
+          // Load chat history immediately after getting user ID
+          console.log('📋 Admin Sidebar: Loading chat history after getting user ID');
+          await this.loadChatHistory();
+        } else {
+          console.warn('⚠️ Admin Sidebar: No user ID in response:', data);
         }
       } catch (err) {
-        console.error("Error getting user ID:", err);
+        console.error("❌ Admin Sidebar: Error getting user ID:", err);
       }
     },
-    toggleAIDropdown() {
+    async toggleAIDropdown() {
       this.aiDropdownOpen = !this.aiDropdownOpen;
+      console.log('🔄 Admin Sidebar: AI dropdown toggled, open:', this.aiDropdownOpen);
       // Always reload history when opening dropdown to ensure it's up to date
-      if (this.aiDropdownOpen && this.userId) {
-        this.loadChatHistory();
+      if (this.aiDropdownOpen) {
+        if (this.userId) {
+          console.log('📋 Admin Sidebar: Reloading history on dropdown open');
+          await this.loadChatHistory();
+        } else {
+          console.log('⚠️ Admin Sidebar: No user ID, getting it first...');
+          await this.getUserId();
+          if (this.userId) {
+            console.log('📋 Admin Sidebar: Got user ID, now loading history...');
+            await this.loadChatHistory();
+          }
+        }
       }
     },
     handleAIClick(item) {
@@ -402,11 +484,31 @@ export default {
       this.toggleAIDropdown();
     },
     async loadChatHistory() {
-      if (!this.userId || this.loadingHistory) return;
+      if (!this.userId) {
+        console.warn('⚠️ Admin Sidebar: Cannot load history - no user ID');
+        return;
+      }
+      
+      // Prevent concurrent requests
+      if (this.loadingHistory) {
+        console.log('📋 Admin Sidebar: Already loading, skipping duplicate request');
+        return;
+      }
       
       this.loadingHistory = true;
       try {
-        const token = localStorage.getItem("adminToken");
+        // Use same token priority as getUserId and composable
+        const employeeToken = localStorage.getItem("employeeToken");
+        const employerToken = localStorage.getItem("employerToken");
+        const adminToken = localStorage.getItem("adminToken");
+        const token = employeeToken || employerToken || adminToken;
+        
+        if (!token) {
+          console.warn('⚠️ Admin Sidebar: No token available');
+          this.loadingHistory = false;
+          return;
+        }
+        
         const url = `${this.apiBase}/admin/chat/sessions?users_id=${this.userId}`;
         console.log('📋 Admin Sidebar: Loading chat history from:', url);
         
@@ -425,7 +527,7 @@ export default {
           
           if (data.sessions && Array.isArray(data.sessions)) {
             console.log(`✅ Admin Sidebar: Found ${data.sessions.length} chat sessions`);
-            this.chatHistory = data.sessions.map(session => ({
+            const mappedSessions = data.sessions.map(session => ({
               sessionId: String(session.id),
               title: session.title || 'New Chat',
               createdAt: session.created_at || session.createdAt,
@@ -435,6 +537,9 @@ export default {
               const dateB = new Date(b.createdAt || 0);
               return dateB - dateA;
             });
+            
+            // Force reactivity by creating new array reference
+            this.chatHistory = [...mappedSessions];
             console.log('✅ Admin Sidebar: Loaded chat history:', this.chatHistory.length, 'sessions');
           } else {
             console.warn('⚠️ Admin Sidebar: No sessions array in response:', data);
@@ -446,7 +551,8 @@ export default {
           this.chatHistory = [];
         }
       } catch (err) {
-        console.error("Error loading chat history:", err);
+        console.error("❌ Admin Sidebar: Error loading chat history:", err);
+        this.chatHistory = [];
       } finally {
         this.loadingHistory = false;
       }
@@ -484,12 +590,23 @@ export default {
         query: { sessionId: chat.sessionId }
       });
     },
-    async deleteChat(chat) {
-      if (!confirm(`Delete "${chat.title || 'Untitled Chat'}"?`)) return;
+    deleteChat(chat) {
+      // Show the modal instead of browser confirm
+      this.chatToDelete = chat;
+      this.showDeleteModal = true;
+    },
+    async confirmDelete() {
+      if (!this.chatToDelete) return;
       
+      this.deletingChat = true;
       try {
-        const token = localStorage.getItem("adminToken");
-        const res = await fetch(`${this.apiBase}/admin/chat/session/${chat.sessionId}`, {
+        // Use same token priority as other methods
+        const employeeToken = localStorage.getItem("employeeToken");
+        const employerToken = localStorage.getItem("employerToken");
+        const adminToken = localStorage.getItem("adminToken");
+        const token = employeeToken || employerToken || adminToken;
+        
+        const res = await fetch(`${this.apiBase}/admin/chat/session/${this.chatToDelete.sessionId}`, {
           method: 'DELETE',
           headers: { 
             'Authorization': `Bearer ${token}`
@@ -497,12 +614,26 @@ export default {
         });
         
         if (res.ok) {
-          this.chatHistory = this.chatHistory.filter(c => c.sessionId !== chat.sessionId);
+          this.chatHistory = this.chatHistory.filter(c => c.sessionId !== this.chatToDelete.sessionId);
+          console.log('✅ Chat deleted successfully');
+        } else {
+          const errorText = await res.text();
+          console.error('❌ Failed to delete chat:', res.status, errorText);
+          alert("Failed to delete chat. Please try again.");
         }
       } catch (err) {
-        console.error("Error deleting chat:", err);
+        console.error("❌ Error deleting chat:", err);
         alert("Failed to delete chat. Please try again.");
+      } finally {
+        this.deletingChat = false;
+        this.showDeleteModal = false;
+        this.chatToDelete = null;
       }
+    },
+    cancelDelete() {
+      this.showDeleteModal = false;
+      this.chatToDelete = null;
+      this.deletingChat = false;
     },
     async handleChatHistoryUpdate() {
       // Reload chat history when a new message is sent (even if dropdown is closed)
@@ -711,6 +842,29 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  max-height: 400px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.25rem;
+}
+
+/* Custom Scrollbar for Chat History */
+.chat-history-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-history-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.chat-history-list::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 10px;
+}
+
+.chat-history-list::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 
 .chat-history-item {

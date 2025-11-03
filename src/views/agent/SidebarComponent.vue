@@ -96,14 +96,26 @@
       </ul>
     </nav>
   </aside>
+  
+  <!-- Delete Chat Modal -->
+  <DeleteChatModal
+    :visible="showDeleteModal"
+    :chat-title="chatToDelete?.title || 'Untitled Chat'"
+    :deleting="deletingChat"
+    @confirm="confirmDelete"
+    @cancel="cancelDelete"
+  />
 </template>
-
 
 <script>
 import { useRoute, useRouter } from 'vue-router';
 import { ref, onMounted, onUnmounted, watch } from 'vue';
+import DeleteChatModal from '@/components/DeleteChatModal.vue';
 
 export default {
+  components: {
+    DeleteChatModal
+  },
   props: {
     visible: Boolean,
   },
@@ -116,6 +128,9 @@ export default {
     const currentSessionId = ref(null);
     const loadingHistory = ref(false);
     const userId = ref(null);
+    const showDeleteModal = ref(false);
+    const chatToDelete = ref(null);
+    const deletingChat = ref(false);
     
     // Determine API base - use same logic as useKoziChat for consistency
     // Check if we're in development (localhost) or production (Railway)
@@ -178,11 +193,18 @@ export default {
       return matchPrefix.some(prefix => route.path.startsWith(prefix));
     };
 
-    const toggleAIDropdown = () => {
+    const toggleAIDropdown = async () => {
       aiDropdownOpen.value = !aiDropdownOpen.value;
+      console.log('🔄 Agent Sidebar: AI dropdown toggled, open:', aiDropdownOpen.value);
       // Always reload history when opening dropdown to ensure it's up to date
-      if (aiDropdownOpen.value && userId.value) {
-        loadChatHistory();
+      if (aiDropdownOpen.value) {
+        if (userId.value) {
+          console.log('📋 Agent Sidebar: Reloading history on dropdown open');
+          await loadChatHistory();
+        } else {
+          console.log('⚠️ Agent Sidebar: No user ID, getting it first...');
+          await getUserId();
+        }
       }
     };
 
@@ -199,22 +221,46 @@ export default {
     const getUserId = async () => {
       try {
         const token = localStorage.getItem("agentToken") || localStorage.getItem("adminToken");
-        if (!token) return;
+        if (!token) {
+          console.warn('⚠️ Agent Sidebar: No token found');
+          return;
+        }
         
         const payload = JSON.parse(atob(token.split(".")[1]));
         const userEmail = payload.email;
+        console.log('📧 Agent Sidebar: Getting user ID for email:', userEmail);
+
+        // Get user ID from external API (same as composable and other sidebars)
+        const userIdUrl = `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`;
+        console.log('📧 Agent Sidebar: Fetching userId from:', userIdUrl);
         
-        const res = await fetch(`${API_BASE}/get_user_id_by_email/${userEmail}`, {
-          headers: { Authorization: `Bearer ${token}` }
+        const res = await fetch(userIdUrl, {
+          headers: { 
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}` 
+          },
         });
         
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error('❌ Agent Sidebar: User ID fetch failed:', res.status, errorText);
+          throw new Error(`Failed to fetch user ID: ${res.status}`);
+        }
+        
         const data = await res.json();
-        if (res.ok && data.users_id) {
+        console.log('📋 Agent Sidebar: User ID response:', data);
+
+        if (data.users_id) {
           userId.value = data.users_id;
-          loadChatHistory();
+          console.log('✅ Agent Sidebar: Got user ID:', userId.value);
+          // Load chat history immediately after getting user ID
+          console.log('📋 Agent Sidebar: Loading chat history after getting user ID');
+          await loadChatHistory();
+        } else {
+          console.warn('⚠️ Agent Sidebar: No user ID in response:', data);
         }
       } catch (err) {
-        console.error("Error getting user ID:", err);
+        console.error("❌ Agent Sidebar: Error getting user ID:", err);
       }
     };
 
@@ -304,12 +350,19 @@ export default {
       });
     };
 
-    const deleteChat = async (chat) => {
-      if (!confirm(`Delete "${chat.title || 'Untitled Chat'}"?`)) return;
+    const deleteChat = (chat) => {
+      // Show the modal instead of browser confirm
+      chatToDelete.value = chat;
+      showDeleteModal.value = true;
+    };
+    
+    const confirmDelete = async () => {
+      if (!chatToDelete.value) return;
       
+      deletingChat.value = true;
       try {
         const token = localStorage.getItem("agentToken") || localStorage.getItem("adminToken");
-        const res = await fetch(`${API_BASE}/admin/chat/session/${chat.sessionId}`, {
+        const res = await fetch(`${API_BASE}/admin/chat/session/${chatToDelete.value.sessionId}`, {
           method: 'DELETE',
           headers: { 
             'Authorization': `Bearer ${token}`
@@ -317,12 +370,27 @@ export default {
         });
         
         if (res.ok) {
-          chatHistory.value = chatHistory.value.filter(c => c.sessionId !== chat.sessionId);
+          chatHistory.value = chatHistory.value.filter(c => c.sessionId !== chatToDelete.value.sessionId);
+          console.log('✅ Chat deleted successfully');
+        } else {
+          const errorText = await res.text();
+          console.error('❌ Failed to delete chat:', res.status, errorText);
+          alert("Failed to delete chat. Please try again.");
         }
       } catch (err) {
-        console.error("Error deleting chat:", err);
+        console.error("❌ Error deleting chat:", err);
         alert("Failed to delete chat. Please try again.");
+      } finally {
+        deletingChat.value = false;
+        showDeleteModal.value = false;
+        chatToDelete.value = null;
       }
+    };
+    
+    const cancelDelete = () => {
+      showDeleteModal.value = false;
+      chatToDelete.value = null;
+      deletingChat.value = false;
     };
 
     // Watch route to update currentSessionId
@@ -382,11 +450,16 @@ export default {
       chatHistory,
       currentSessionId,
       loadingHistory,
+      showDeleteModal,
+      chatToDelete,
+      deletingChat,
       toggleAIDropdown,
       handleAIClick,
       handleNewChat,
       loadChat,
       deleteChat,
+      confirmDelete,
+      cancelDelete,
     };
   },
 };

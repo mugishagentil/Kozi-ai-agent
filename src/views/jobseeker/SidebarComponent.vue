@@ -85,42 +85,42 @@
           </template>
           <!-- Regular Menu Items -->
           <template v-else>
-            <!-- External Links -->
-            <a
-              v-if="item.external"
-              :href="item.link"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="sidebar-nav-link"
-            >
-              <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
-              {{ item.name }}
-              <span v-if="item.premium" class="premium-badge">Premium</span>
-            </a>
+          <!-- External Links -->
+          <a
+            v-if="item.external"
+            :href="item.link"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="sidebar-nav-link"
+          >
+            <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
+            {{ item.name }}
+            <span v-if="item.premium" class="premium-badge">Premium</span>
+          </a>
 
-            <!-- Regular Router Links -->
-            <router-link
-              v-else-if="isProfileComplete || item.link === '/dashboard/Edit-Profile' || item.link === '/dashboard/message' || item.link === '/dashboard/ai-agent' || item.name === 'Guidelines'" 
-              :to="item.link"
-              @click="$emit('close-sidebar')"
-              :class="[ { 'router-link-active': isActive(item.matchPrefix) } ]"
-            >
-              <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
-              {{ item.name }}
-              <span v-if="item.premium" class="premium-badge">Premium</span>
-            </router-link>
+          <!-- Regular Router Links -->
+          <router-link
+          v-else-if="isProfileComplete || item.link === '/dashboard/Edit-Profile' || item.link === '/dashboard/message' || item.link === '/dashboard/ai-agent' || item.name === 'Guidelines'" 
+          :to="item.link"
+          @click="$emit('close-sidebar')"
+          :class="[ { 'router-link-active': isActive(item.matchPrefix) } ]"
+        >
+            <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
+            {{ item.name }}
+            <span v-if="item.premium" class="premium-badge">Premium</span>
+          </router-link>
 
-            <!-- Disabled Links (Profile Incomplete) -->
-            <a
-              v-else
-              @click="showAccessModal"
-              class="sidebar-nav-link disabled-link"
-              style="cursor: pointer;"
-            >
-              <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
-              {{ item.name }}
-              <span v-if="item.premium" class="premium-badge">Premium</span>
-            </a>
+          <!-- Disabled Links (Profile Incomplete) -->
+          <a
+            v-else
+            @click="showAccessModal"
+            class="sidebar-nav-link disabled-link"
+            style="cursor: pointer;"
+          >
+            <i :class="item.icon" style="margin-right: 8px; font-size: 1.25rem;"></i>
+            {{ item.name }}
+            <span v-if="item.premium" class="premium-badge">Premium</span>
+          </a>
           </template>
         </li>
       </ul>
@@ -155,9 +155,19 @@
       </div>
     </div>
   </aside>
+  
+  <!-- Delete Chat Modal -->
+  <DeleteChatModal
+    :visible="showDeleteModal"
+    :chat-title="chatToDelete?.title || 'Untitled Chat'"
+    :deleting="deletingChat"
+    @confirm="confirmDelete"
+    @cancel="cancelDelete"
+  />
 </template>
 
 <script>
+import DeleteChatModal from '@/components/DeleteChatModal.vue';
 import { useRoute, useRouter } from 'vue-router';
 
 export default {
@@ -165,6 +175,9 @@ export default {
     visible: Boolean,
   },
   emits: ['close-sidebar'],
+  components: {
+    DeleteChatModal
+  },
   data() {
     return {
       userEmail: "",
@@ -175,6 +188,9 @@ export default {
       chatHistory: [],
       currentSessionId: null,
       loadingHistory: false,
+      showDeleteModal: false,
+      chatToDelete: null,
+      deletingChat: false,
     };
   },
   computed: {
@@ -346,12 +362,12 @@ export default {
           // Check profile completeness (try both API bases)
           try {
             const checkRes = await fetch(`${this.apiBase}/seekers/check_columns/${this.userId}`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
+            headers: { Authorization: `Bearer ${token}` },
+          });
             
             if (checkRes.ok) {
-              const checkData = await checkRes.json();
-              this.isProfileComplete = checkData.isComplete;
+          const checkData = await checkRes.json();
+          this.isProfileComplete = checkData.isComplete;
               console.log('✅ Job Seeker Sidebar: Profile check complete:', {
                 userId: this.userId,
                 isComplete: this.isProfileComplete
@@ -497,12 +513,18 @@ export default {
         query: { sessionId: chat.sessionId }
       });
     },
-    async deleteChat(chat) {
-      if (!confirm(`Delete "${chat.title || 'Untitled Chat'}"?`)) return;
+    deleteChat(chat) {
+      // Show the modal instead of browser confirm
+      this.chatToDelete = chat;
+      this.showDeleteModal = true;
+    },
+    async confirmDelete() {
+      if (!this.chatToDelete) return;
       
+      this.deletingChat = true;
       try {
         const token = localStorage.getItem("employeeToken");
-        const res = await fetch(`${this.apiBase}/chat/session/${chat.sessionId}`, {
+        const res = await fetch(`${this.apiBase}/chat/session/${this.chatToDelete.sessionId}`, {
           method: 'DELETE',
           headers: { 
             'Authorization': `Bearer ${token}`
@@ -510,12 +532,26 @@ export default {
         });
         
         if (res.ok) {
-          this.chatHistory = this.chatHistory.filter(c => c.sessionId !== chat.sessionId);
+          this.chatHistory = this.chatHistory.filter(c => c.sessionId !== this.chatToDelete.sessionId);
+          console.log('✅ Chat deleted successfully');
+        } else {
+          const errorText = await res.text();
+          console.error('❌ Failed to delete chat:', res.status, errorText);
+          alert("Failed to delete chat. Please try again.");
         }
       } catch (err) {
-        console.error("Error deleting chat:", err);
+        console.error("❌ Error deleting chat:", err);
         alert("Failed to delete chat. Please try again.");
+      } finally {
+        this.deletingChat = false;
+        this.showDeleteModal = false;
+        this.chatToDelete = null;
       }
+    },
+    cancelDelete() {
+      this.showDeleteModal = false;
+      this.chatToDelete = null;
+      this.deletingChat = false;
     },
     showAccessModal() {
       this.showModal = true;

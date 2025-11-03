@@ -40,7 +40,10 @@
                 <div class="history-header">
                   <span>HISTORY</span>
                 </div>
-                <div v-if="chatHistory.length > 0" class="chat-history-list">
+                <div v-if="loadingHistory" class="empty-history">
+                  <p>Loading chats...</p>
+                </div>
+                <div v-else-if="chatHistory.length > 0" class="chat-history-list">
                   <div
                     v-for="(chat, index) in chatHistory"
                     :key="chat.sessionId || index"
@@ -49,20 +52,17 @@
                     @click="loadChat(chat)"
                   >
                     <span class="chat-title">{{ chat.title || 'Untitled Chat' }}</span>
+                    <button 
+                      class="delete-chat-btn"
+                      @click.stop="deleteChat(chat)"
+                      title="Delete this chat"
+                    >
+                      <i class="fas fa-trash"></i>
+                    </button>
                   </div>
-                </div>
-                <div v-else-if="loadingHistory" class="empty-history">
-                  <p>Loading chats...</p>
                 </div>
                 <div v-else class="empty-history">
                   <p>No chats yet</p>
-                  <!-- Debug info - can be removed after testing -->
-                  <small v-if="userId" style="font-size: 0.7rem; color: #999; display: block; margin-top: 4px;">
-                    Ready to load (userId: {{ userId }})
-                  </small>
-                  <small v-else style="font-size: 0.7rem; color: #999; display: block; margin-top: 4px;">
-                    Waiting for user ID...
-                  </small>
                 </div>
               </li>
             </ul>
@@ -95,14 +95,26 @@
       </ul>
     </nav>
   </aside>
+  
+  <!-- Delete Chat Modal -->
+  <DeleteChatModal
+    :visible="showDeleteModal"
+    :chat-title="chatToDelete?.title || 'Untitled Chat'"
+    :deleting="deletingChat"
+    @confirm="confirmDelete"
+    @cancel="cancelDelete"
+  />
 </template>
-
 
 <script>
 import { useRoute, useRouter } from 'vue-router';
 import { ref, onMounted, onUnmounted, watch } from 'vue';
+import DeleteChatModal from '@/components/DeleteChatModal.vue';
 
 export default {
+  components: {
+    DeleteChatModal
+  },
   props: {
     visible: Boolean,
   },
@@ -115,6 +127,9 @@ export default {
     const currentSessionId = ref(null);
     const loadingHistory = ref(false);
     const userId = ref(null);
+    const showDeleteModal = ref(false);
+    const chatToDelete = ref(null);
+    const deletingChat = ref(false);
     
     // Determine API base - use same logic as useKoziChat for consistency
     // Check if we're in development (localhost) or production (Railway)
@@ -222,32 +237,46 @@ export default {
       try {
         const token = localStorage.getItem("employerToken");
         if (!token) {
-          console.warn('⚠️ No employerToken found in sidebar');
+          console.warn('⚠️ Employer Sidebar: No employerToken found');
           return;
         }
         
         const payload = JSON.parse(atob(token.split(".")[1]));
         const userEmail = payload.email;
+        console.log('📧 Employer Sidebar: Getting user ID for email:', userEmail);
+
+        // Get user ID from external API (same as composable and jobseeker sidebar)
+        const userIdUrl = `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`;
+        console.log('📧 Employer Sidebar: Fetching userId from:', userIdUrl);
         
-        console.log('📧 Sidebar: Getting user ID for email:', userEmail);
-        
-        const res = await fetch(`${API_BASE}/get_user_id_by_email/${userEmail}`, {
-          headers: { Authorization: `Bearer ${token}` }
+        const res = await fetch(userIdUrl, {
+          headers: { 
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}` 
+          },
         });
         
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error('❌ Employer Sidebar: User ID fetch failed:', res.status, errorText);
+          throw new Error(`Failed to fetch user ID: ${res.status}`);
+        }
+        
         const data = await res.json();
-        if (res.ok && data.users_id) {
+        console.log('📋 Employer Sidebar: User ID response:', data);
+
+        if (data.users_id) {
           userId.value = data.users_id;
-          console.log('✅ Sidebar: Got user ID:', userId.value);
+          console.log('✅ Employer Sidebar: Got user ID:', userId.value);
           
           // Load chat history immediately after getting user ID
-          console.log('📋 Sidebar: Loading chat history after getting user ID');
+          console.log('📋 Employer Sidebar: Loading chat history after getting user ID');
           await loadChatHistory();
         } else {
-          console.warn('⚠️ Sidebar: Failed to get user ID:', data);
+          console.warn('⚠️ Employer Sidebar: No user ID in response:', data);
         }
       } catch (err) {
-        console.error("❌ Sidebar: Error getting user ID:", err);
+        console.error("❌ Employer Sidebar: Error getting user ID:", err);
       }
     };
 
@@ -364,12 +393,19 @@ export default {
       });
     };
 
-    const deleteChat = async (chat) => {
-      if (!confirm(`Delete "${chat.title || 'Untitled Chat'}"?`)) return;
+    const deleteChat = (chat) => {
+      // Show the modal instead of browser confirm
+      chatToDelete.value = chat;
+      showDeleteModal.value = true;
+    };
+    
+    const confirmDelete = async () => {
+      if (!chatToDelete.value) return;
       
+      deletingChat.value = true;
       try {
         const token = localStorage.getItem("employerToken");
-        const res = await fetch(`${API_BASE}/chat/employer/session/${chat.sessionId}`, {
+        const res = await fetch(`${API_BASE}/chat/employer/session/${chatToDelete.value.sessionId}`, {
           method: 'DELETE',
           headers: { 
             'Authorization': `Bearer ${token}`
@@ -377,12 +413,27 @@ export default {
         });
         
         if (res.ok) {
-          chatHistory.value = chatHistory.value.filter(c => c.sessionId !== chat.sessionId);
+          chatHistory.value = chatHistory.value.filter(c => c.sessionId !== chatToDelete.value.sessionId);
+          console.log('✅ Chat deleted successfully');
+        } else {
+          const errorText = await res.text();
+          console.error('❌ Failed to delete chat:', res.status, errorText);
+          alert("Failed to delete chat. Please try again.");
         }
       } catch (err) {
-        console.error("Error deleting chat:", err);
+        console.error("❌ Error deleting chat:", err);
         alert("Failed to delete chat. Please try again.");
+      } finally {
+        deletingChat.value = false;
+        showDeleteModal.value = false;
+        chatToDelete.value = null;
       }
+    };
+    
+    const cancelDelete = () => {
+      showDeleteModal.value = false;
+      chatToDelete.value = null;
+      deletingChat.value = false;
     };
 
     // Watch route to update currentSessionId and reload history when needed
@@ -525,11 +576,16 @@ export default {
       chatHistory,
       currentSessionId,
       loadingHistory,
+      showDeleteModal,
+      chatToDelete,
+      deletingChat,
       toggleAIDropdown,
       handleAIClick,
       handleNewChat,
       loadChat,
       deleteChat,
+      confirmDelete,
+      cancelDelete,
       handleChatHistoryUpdate,
       userId, // Expose userId for template debugging if needed
     };
@@ -824,53 +880,66 @@ export default {
   letter-spacing: 0.5px;
 }
 
-/* Chat History List - Clean minimal style like example */
+/* Chat History List */
 .chat-history-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   max-height: 400px;
   overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.25rem;
+}
+
+/* Custom Scrollbar for Chat History */
+.chat-history-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-history-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.chat-history-list::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 10px;
+}
+
+.chat-history-list::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 
 .chat-history-item {
-  display: block;
-  padding: 0.625rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  margin: 0 0.25rem;
+  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  border-radius: 8px;
-  margin-bottom: 0.125rem;
-  color: #333;
-  font-size: 0.875rem;
-  font-weight: 400;
-  background-color: transparent;
-  border: none;
-  text-align: left;
-  width: 100%;
-  position: relative;
+  transition: background 0.2s ease;
+  background: white;
+  border: 1px solid #e9ecef;
 }
 
 .chat-history-item:hover {
-  background-color: rgba(0, 0, 0, 0.04);
+  background: #f8f9fa;
 }
 
 .chat-history-item.active {
-  background-color: rgba(0, 0, 0, 0.08);
-  font-weight: 400;
-  color: #000;
+  background: #E960A6;
+  color: white;
+  border-color: #E960A6;
 }
 
 .chat-title {
-  display: block;
-  color: inherit;
+  flex: 1;
   font-size: 0.875rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  width: 100%;
-  padding: 0;
-  margin: 0;
-  line-height: 1.4;
+  margin-right: 0.5rem;
 }
 
 .delete-chat-btn {

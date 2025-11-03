@@ -415,10 +415,345 @@ async function intelligentQuery(userQuestion) {
   }
 }
 
+// ============ FETCH JOB SEEKERS FROM EXTERNAL API ============
+async function fetchJobSeekersFromAPI(filters = {}, apiToken = null) {
+  try {
+    // Use provided token (admin's token) or fall back to env variable
+    const token = apiToken || process.env.API_TOKEN || '';
+    const apiBase = 'https://apis.kozi.rw';
+    
+    // Build query parameters
+    const queryParams = new URLSearchParams();
+    if (filters.search) queryParams.append('search', filters.search);
+    if (filters.province) queryParams.append('province', filters.province);
+    if (filters.district) queryParams.append('district', filters.district);
+    if (filters.category_id) queryParams.append('category_id', filters.category_id);
+    if (filters.created_after) queryParams.append('created_after', filters.created_after);
+    if (filters.limit) queryParams.append('limit', filters.limit);
+    
+    // Fetch all job seekers from external API
+    const url = `${apiBase}/job_seekers${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+    console.log('[JOB_SEEKERS_API] Fetching from:', url);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` })
+      }
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[JOB_SEEKERS_API] Error:', response.status, errorText);
+      throw new Error(`Job seekers API failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Handle different response formats
+    const jobSeekers = Array.isArray(data) ? data : (data.data || data.job_seekers || data.seekers || []);
+    
+    // Apply client-side filtering if needed
+    let filteredSeekers = jobSeekers;
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase().trim();
+      const searchParts = searchLower.split(/\s+/).filter(p => p.length > 0);
+      
+      filteredSeekers = jobSeekers.filter(seeker => {
+        // Try different name formats
+        const firstName = (seeker.first_name || '').toLowerCase().trim();
+        const lastName = (seeker.last_name || '').toLowerCase().trim();
+        const fullName = `${firstName} ${lastName}`.trim();
+        const reverseName = `${lastName} ${firstName}`.trim();
+        const displayName = (seeker.name || seeker.full_name || '').toLowerCase().trim();
+        const email = (seeker.email || '').toLowerCase().trim();
+        
+        // Exact match
+        if (fullName === searchLower || reverseName === searchLower || displayName === searchLower || email === searchLower) {
+          return true;
+        }
+        
+        // Contains match
+        if (fullName.includes(searchLower) || reverseName.includes(searchLower) || displayName.includes(searchLower) || email.includes(searchLower)) {
+          return true;
+        }
+        
+        // Parts match - check if all search parts are in the name
+        if (searchParts.length > 0) {
+          const allPartsMatch = searchParts.every(part => 
+            fullName.includes(part) || 
+            reverseName.includes(part) || 
+            displayName.includes(part) ||
+            firstName.includes(part) ||
+            lastName.includes(part)
+          );
+          if (allPartsMatch) return true;
+        }
+        
+        // Individual field matches
+        if (firstName.includes(searchLower) || lastName.includes(searchLower)) {
+          return true;
+        }
+        
+        // Skills match
+        if (seeker.skills) {
+          if (Array.isArray(seeker.skills) && seeker.skills.some(skill => String(skill).toLowerCase().includes(searchLower))) {
+            return true;
+          }
+          if (typeof seeker.skills === 'string' && seeker.skills.toLowerCase().includes(searchLower)) {
+            return true;
+          }
+        }
+        
+        return false;
+      });
+    }
+    
+    // Apply limit
+    if (filters.limit) {
+      filteredSeekers = filteredSeekers.slice(0, filters.limit);
+    }
+    
+    return {
+      success: true,
+      data: filteredSeekers,
+      count: filteredSeekers.length,
+      total: jobSeekers.length
+    };
+  } catch (error) {
+    console.error('[JOB_SEEKERS_API] Fetch error:', error);
+    return {
+      success: false,
+      error: error.message,
+      data: [],
+      count: 0
+    };
+  }
+}
+
+// ============ FETCH ALL CATEGORIES ============
+async function fetchAllCategories(apiToken = null) {
+  try {
+    const token = apiToken || process.env.API_TOKEN || '';
+    const apiBase = 'https://apis.kozi.rw';
+    const url = `${apiBase}/name_and_id`;
+    console.log('[CATEGORIES_API] Fetching from:', url);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` })
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Categories API failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const categories = Array.isArray(data) ? data : (data.data || data.categories || []);
+    
+    return {
+      success: true,
+      data: categories,
+      count: categories.length
+    };
+  } catch (error) {
+    console.error('[CATEGORIES_API] Fetch error:', error);
+    return {
+      success: false,
+      error: error.message,
+      data: [],
+      count: 0
+    };
+  }
+}
+
+// ============ FETCH JOB SEEKERS BY CATEGORY ============
+async function fetchJobSeekersByCategory(categoryId, filters = {}, apiToken = null) {
+  try {
+    if (!categoryId) {
+      throw new Error('Category ID is required');
+    }
+    
+    const token = apiToken || process.env.API_TOKEN || '';
+    const apiBase = 'https://apis.kozi.rw';
+    const url = `${apiBase}/select_user_based_on_category/${categoryId}`;
+    console.log('[JOB_SEEKERS_BY_CATEGORY_API] Fetching from:', url);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` })
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Job seekers by category API failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const jobSeekers = Array.isArray(data) ? data : (data.data || data.seekers || []);
+    
+    // Apply filters if needed
+    let filteredSeekers = jobSeekers;
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      filteredSeekers = jobSeekers.filter(seeker => 
+        (seeker.first_name && seeker.first_name.toLowerCase().includes(searchLower)) ||
+        (seeker.last_name && seeker.last_name.toLowerCase().includes(searchLower)) ||
+        (seeker.email && seeker.email.toLowerCase().includes(searchLower))
+      );
+    }
+    
+    if (filters.limit) {
+      filteredSeekers = filteredSeekers.slice(0, filters.limit);
+    }
+    
+    return {
+      success: true,
+      data: filteredSeekers,
+      count: filteredSeekers.length,
+      total: jobSeekers.length
+    };
+  } catch (error) {
+    console.error('[JOB_SEEKERS_BY_CATEGORY_API] Fetch error:', error);
+    return {
+      success: false,
+      error: error.message,
+      data: [],
+      count: 0
+    };
+  }
+}
+
+// ============ FETCH EMPLOYER PROFILE ============
+async function fetchEmployerProfile(users_id, apiToken = null) {
+  try {
+    if (!users_id) {
+      throw new Error('User ID is required');
+    }
+    
+    const token = apiToken || process.env.API_TOKEN || '';
+    const apiBase = 'https://apis.kozi.rw';
+    const url = `${apiBase}/provider/view_profile/${users_id}`;
+    console.log('[EMPLOYER_PROFILE_API] Fetching from:', url);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` })
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Employer profile API failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    return {
+      success: true,
+      data: data
+    };
+  } catch (error) {
+    console.error('[EMPLOYER_PROFILE_API] Fetch error:', error);
+    return {
+      success: false,
+      error: error.message,
+      data: null
+    };
+  }
+}
+
+// ============ GET USER ID BY EMAIL ============
+async function getUserIdByEmail(email, apiToken = null) {
+  try {
+    if (!email) {
+      throw new Error('Email is required');
+    }
+    
+    const token = apiToken || process.env.API_TOKEN || '';
+    const apiBase = 'https://apis.kozi.rw';
+    const url = `${apiBase}/get_user_id_by_email/${encodeURIComponent(email)}`;
+    console.log('[GET_USER_ID_API] Fetching from:', url);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` })
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Get user ID API failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    return {
+      success: true,
+      users_id: data.users_id || data.user_id || data.id,
+      data: data
+    };
+  } catch (error) {
+    console.error('[GET_USER_ID_API] Fetch error:', error);
+    return {
+      success: false,
+      error: error.message,
+      users_id: null
+    };
+  }
+}
+
+// ============ FETCH INCOMPLETE PROFILES ============
+async function fetchIncompleteProfiles(apiToken = null) {
+  try {
+    const token = apiToken || process.env.API_TOKEN || '';
+    const apiBase = 'https://apis.kozi.rw';
+    const url = `${apiBase}/admin/job_seekers/who_did_not_complete_profile`;
+    console.log('[INCOMPLETE_PROFILES_API] Fetching from:', url);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` })
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Incomplete profiles API failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const incompleteProfiles = Array.isArray(data) ? data : (data.data || data.profiles || []);
+    
+    return {
+      success: true,
+      data: incompleteProfiles,
+      count: incompleteProfiles.length
+    };
+  } catch (error) {
+    console.error('[INCOMPLETE_PROFILES_API] Fetch error:', error);
+    return {
+      success: false,
+      error: error.message,
+      data: [],
+      count: 0
+    };
+  }
+}
+
 module.exports = {
   extractSqlFromText,
   queryWithNaturalLanguage,
   getInsights,
   filterEntities,
-  intelligentQuery
+  intelligentQuery,
+  fetchJobSeekersFromAPI,
+  fetchAllCategories,
+  fetchJobSeekersByCategory,
+  fetchEmployerProfile,
+  getUserIdByEmail,
+  fetchIncompleteProfiles
 };

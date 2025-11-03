@@ -8,7 +8,16 @@ const {
 const { PROMPT_TEMPLATES } = require('../../utils/prompts');
 const { analyzeIntent } = require('../../utils/llmUtils');
 const { listUpcomingPayments, markAsPaid } = require('../payment.service');
-const { intelligentQuery, getInsights, fetchJobSeekersFromAPI } = require('../adminDb.service');
+const { 
+  intelligentQuery, 
+  getInsights, 
+  fetchJobSeekersFromAPI,
+  fetchAllCategories,
+  fetchJobSeekersByCategory,
+  fetchEmployerProfile,
+  getUserIdByEmail,
+  fetchIncompleteProfiles
+} = require('../adminDb.service');
 const templates = require('../../utils/responseTemplates');
 const { GmailAgentService } = require('../gmail.service');
 const { fetchKoziWebsiteContext } = require('../../utils/fetchKoziWebsite');
@@ -210,11 +219,401 @@ async function handleGmail(userMsg) {
 }
 
 // ============ DATABASE HANDLER ============
-async function handleDb(userMsg) {
+async function handleDb(userMsg, apiToken = null) {
   try {
     console.log('[DB] Processing query:', userMsg);
     
-    // Use intelligent query routing
+    const lowerMsg = userMsg.toLowerCase();
+    
+    // Check if user wants to find a user by email or name
+    const emailMatch = userMsg.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+    const nameMatch = userMsg.match(/(?:user|find|search|have).*?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i) || 
+                      userMsg.match(/(?:user|find|search|have).*?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+[A-Z][a-z]+)/i) ||
+                      userMsg.match(/([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
+    
+    if (emailMatch || nameMatch) {
+      if (emailMatch) {
+        // Lookup by email
+        const email = emailMatch[1];
+        console.log('[DB] Looking up user by email:', email);
+        
+        // First, try searching in job seekers directly (more reliable)
+        const seekersResult = await fetchJobSeekersFromAPI({ search: email, limit: 10 }, apiToken);
+        
+        if (seekersResult.success && seekersResult.data && seekersResult.data.length > 0) {
+          // Find exact email match
+          const matchedSeeker = seekersResult.data.find(seeker => 
+            seeker.email && seeker.email.toLowerCase().trim() === email.toLowerCase().trim()
+          ) || seekersResult.data[0];
+          
+          if (matchedSeeker.email && matchedSeeker.email.toLowerCase().trim() === email.toLowerCase().trim()) {
+            let response = `✅ **User Found**\n\n`;
+            response += `**Type:** Job Seeker\n`;
+            if (matchedSeeker.users_id || matchedSeeker.id) {
+              response += `**User ID:** ${matchedSeeker.users_id || matchedSeeker.id}\n`;
+            }
+            response += `**Name:** ${matchedSeeker.first_name || 'Unknown'} ${matchedSeeker.last_name || ''}\n`;
+            response += `**Email:** ${matchedSeeker.email || email}\n`;
+            if (matchedSeeker.phone) response += `**Phone:** ${matchedSeeker.phone}\n`;
+            if (matchedSeeker.province || matchedSeeker.district) {
+              response += `**Location:** ${matchedSeeker.district || ''}${matchedSeeker.district && matchedSeeker.province ? ', ' : ''}${matchedSeeker.province || ''}\n`;
+            }
+            if (matchedSeeker.skills && Array.isArray(matchedSeeker.skills) && matchedSeeker.skills.length > 0) {
+              response += `**Skills:** ${matchedSeeker.skills.slice(0, 5).join(', ')}${matchedSeeker.skills.length > 5 ? '...' : ''}\n`;
+            }
+            if (matchedSeeker.created_at) {
+              response += `**Registered:** ${new Date(matchedSeeker.created_at).toLocaleDateString()}\n`;
+            }
+            return response;
+          }
+        }
+        
+        // If not found in job seekers, try getUserIdByEmail API
+        const userIdResult = await getUserIdByEmail(email, apiToken);
+        
+        if (userIdResult.success && userIdResult.users_id) {
+          const users_id = userIdResult.users_id;
+          
+          // Try to fetch as employer first
+          const employerResult = await fetchEmployerProfile(users_id, apiToken);
+          
+          if (employerResult.success && employerResult.data) {
+            const profile = employerResult.data;
+            let response = `✅ **User Found**\n\n`;
+            response += `**Type:** Employer/Job Provider\n`;
+            response += `**User ID:** ${users_id}\n`;
+            response += `**Name:** ${profile.first_name || ''} ${profile.last_name || ''}\n`;
+            response += `**Company:** ${profile.company_name || 'N/A'}\n`;
+            response += `**Email:** ${profile.email || email}\n`;
+            if (profile.phone) response += `**Phone:** ${profile.phone}\n`;
+            if (profile.province || profile.district) {
+              response += `**Location:** ${profile.district || ''}${profile.district && profile.province ? ', ' : ''}${profile.province || ''}\n`;
+            }
+            if (profile.created_at) {
+              response += `**Registered:** ${new Date(profile.created_at).toLocaleDateString()}\n`;
+            }
+            return response;
+          }
+          
+          // User ID found but profile details not available
+          return `✅ **User Found**\n\n**User ID:** ${users_id}\n**Email:** ${email}\n\n⚠️ Profile details could not be retrieved. The user exists in the system.`;
+        } else {
+          // If getUserIdByEmail failed, try broader search in job seekers
+          if (seekersResult.success && seekersResult.data && seekersResult.data.length > 0) {
+            // Show closest matches
+            let response = `⚠️ **Email Not Found Exactly**\n\n`;
+            response += `Found ${seekersResult.data.length} similar results:\n\n`;
+            seekersResult.data.slice(0, 3).forEach((seeker, idx) => {
+              response += `${idx + 1}. **${seeker.first_name || 'Unknown'} ${seeker.last_name || ''}**\n`;
+              response += `   📧 ${seeker.email || 'N/A'}\n`;
+            });
+            response += `\n✅ **Next Step:** Please verify the exact email address.`;
+            return response;
+          }
+          
+          return `❌ **User Not Found**\n\nNo user found with email: **${email}**\n\n✅ **Next Step:** Please verify the email address is correct or check if the user has registered.`;
+        }
+      } else if (nameMatch) {
+        // Lookup by name
+        const nameQuery = nameMatch[1].trim();
+        console.log('[DB] Looking up user by name:', nameQuery);
+        
+        // Split name into parts for better search
+        const nameParts = nameQuery.split(/\s+/);
+        let searchQuery = nameQuery;
+        
+        // Try searching job seekers first
+        const seekersResult = await fetchJobSeekersFromAPI({ search: searchQuery, limit: 20 });
+        
+        if (seekersResult.success && seekersResult.data && seekersResult.data.length > 0) {
+          // Filter results to find exact or close matches
+          const matchedSeekers = seekersResult.data.filter(seeker => {
+            const fullName = `${seeker.first_name || ''} ${seeker.last_name || ''}`.toLowerCase().trim();
+            const queryLower = nameQuery.toLowerCase();
+            
+            // Check if name matches exactly or contains all parts
+            return fullName.includes(queryLower) || 
+                   nameParts.every(part => fullName.includes(part.toLowerCase()));
+          });
+          
+          if (matchedSeekers.length > 0) {
+            const seeker = matchedSeekers[0]; // Take first match
+            let response = `✅ **User Found**\n\n`;
+            response += `**Type:** Job Seeker\n`;
+            response += `**Name:** ${seeker.first_name || 'Unknown'} ${seeker.last_name || ''}\n`;
+            response += `**Email:** ${seeker.email || 'N/A'}\n`;
+            if (seeker.phone) response += `**Phone:** ${seeker.phone}\n`;
+            if (seeker.province || seeker.district) {
+              response += `**Location:** ${seeker.district || ''}${seeker.district && seeker.province ? ', ' : ''}${seeker.province || ''}\n`;
+            }
+            if (seeker.skills && Array.isArray(seeker.skills) && seeker.skills.length > 0) {
+              response += `**Skills:** ${seeker.skills.slice(0, 5).join(', ')}${seeker.skills.length > 5 ? '...' : ''}\n`;
+            }
+            if (seeker.created_at) {
+              response += `**Registered:** ${new Date(seeker.created_at).toLocaleDateString()}\n`;
+            }
+            
+            // If multiple matches found, mention it
+            if (matchedSeekers.length > 1) {
+              response += `\n⚠️ **Note:** Found ${matchedSeekers.length} users with similar names. Showing the first match.`;
+            }
+            
+            return response;
+          }
+        }
+        
+        // If not found in job seekers, try searching with all job seekers API
+        // and check both employers (via direct API) and job seekers
+        // For now, if job seekers search didn't find it, return not found
+        return `❌ **User Not Found**\n\nNo user found with name: **${nameQuery}**\n\n✅ **Next Step:** Please verify the name spelling or try searching by email address instead.`;
+      }
+    }
+    
+    // Check if user wants all categories
+    if (lowerMsg.includes('categories') || lowerMsg.includes('all categories')) {
+      const result = await fetchAllCategories(apiToken);
+      
+      if (!result.success) {
+        return `❌ **Error Fetching Categories**\n\n${result.error}`;
+      }
+      
+      if (!result.data || result.data.length === 0) {
+        return `📂 **No Categories Found**\n\nNo job categories are available.`;
+      }
+      
+      let response = `📂 **All Categories** (${result.count} categories)\n\n`;
+      result.data.slice(0, 20).forEach((category, index) => {
+        response += `${index + 1}. **${category.name || category.category_name || 'Unknown'}**`;
+        if (category.id || category.category_id) {
+          response += ` (ID: ${category.id || category.category_id})`;
+        }
+        if (category.description) {
+          response += `\n   ${category.description}`;
+        }
+        response += '\n\n';
+      });
+      
+      if (result.data.length > 20) {
+        response += `\n_...and ${result.data.length - 20} more categories_\n\n`;
+      }
+      
+      response += `✅ **Next Steps:** You can ask me to:\n`;
+      response += `• Show job seekers in a specific category\n`;
+      response += `• Get more details about a category`;
+      
+      return response;
+    }
+    
+    // Check if user wants employer information
+    if (lowerMsg.includes('employer') && (lowerMsg.includes('profile') || lowerMsg.includes('info') || lowerMsg.includes('information'))) {
+      // Extract user ID or email
+      const userIdMatch = userMsg.match(/(?:user[_\s]*id|users_id|id)[:\s]+(\d+)/i);
+      const emailMatch = userMsg.match(/email[:\s]+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+      
+      let users_id = null;
+      
+      if (userIdMatch) {
+        users_id = parseInt(userIdMatch[1]);
+      } else if (emailMatch) {
+        const email = emailMatch[1];
+        const userIdResult = await getUserIdByEmail(email, apiToken);
+        if (userIdResult.success && userIdResult.users_id) {
+          users_id = userIdResult.users_id;
+        } else {
+          return `❌ **Error Getting User ID**\n\nCould not retrieve user ID for email: ${email}\n\n✅ **Next Step:** Please verify the email address is correct.`;
+        }
+      }
+      
+      if (!users_id) {
+        return `❌ **Missing Information**\n\nPlease provide either:\n• User ID (e.g., "employer profile user_id: 123")\n• Email address (e.g., "employer profile email: user@example.com")`;
+      }
+      
+      const result = await fetchEmployerProfile(users_id, apiToken);
+      
+      if (!result.success) {
+        return `❌ **Error Fetching Employer Profile**\n\n${result.error}`;
+      }
+      
+      if (!result.data) {
+        return `❌ **No Profile Found**\n\nNo employer profile found for user ID: ${users_id}`;
+      }
+      
+      const profile = result.data;
+      let response = `🏢 **Employer Profile**\n\n`;
+      response += `**Name:** ${profile.first_name || ''} ${profile.last_name || ''}\n`;
+      response += `**Company:** ${profile.company_name || 'N/A'}\n`;
+      response += `**Email:** ${profile.email || 'N/A'}\n`;
+      if (profile.phone) response += `**Phone:** ${profile.phone}\n`;
+      if (profile.province || profile.district) {
+        response += `**Location:** ${profile.district || ''}${profile.district && profile.province ? ', ' : ''}${profile.province || ''}\n`;
+      }
+      if (profile.created_at) {
+        response += `**Registered:** ${new Date(profile.created_at).toLocaleDateString()}\n`;
+      }
+      
+      return response;
+    }
+    
+    // Check for other user lookup patterns - any query mentioning "user", "find", "search", "have" with names
+    if (lowerMsg.includes('user') || lowerMsg.includes('find') || lowerMsg.includes('search') || lowerMsg.includes('have')) {
+      // Try to extract name from various patterns - handle mixed case
+      const patterns = [
+        /(?:do\s+we\s+have|have|find|search)\s+user\s+([A-Z][a-z]+\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)*)(?:\s|$|\?)/i,
+        /(?:do\s+we\s+have|have)\s+([A-Z][a-z]+\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)*)(?:\s|$|\?)/i,
+        /(?:user|find|search)\s+([A-Z][a-z]+\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)*)(?:\s|$|\?)/i,
+        /([A-Z][a-z]+\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)*)(?:\s|$|\?)/i
+      ];
+      
+      let extractedName = null;
+      for (const pattern of patterns) {
+        const match = userMsg.match(pattern);
+        if (match && match[1]) {
+          let potentialName = match[1].trim();
+          
+          // Remove "user" if it was included in the match
+          potentialName = potentialName.replace(/^user\s+/i, '').trim();
+          
+          // Check if it looks like a name (has at least 2 words, not too long)
+          const words = potentialName.split(/\s+/).filter(w => w.length > 0);
+          if (words.length >= 2 && potentialName.length < 100 && !words.some(w => w.toLowerCase() === 'user')) {
+            extractedName = potentialName;
+            console.log('[DB] Extracted name:', extractedName);
+            break;
+          }
+        }
+      }
+      
+      // If no match, try to extract any capitalized words that look like names (handle mixed case)
+      if (!extractedName) {
+        const namePattern = /\b([A-Z][a-z]+\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)*)\b/;
+        const match = userMsg.match(namePattern);
+        if (match && match[1]) {
+          const potentialName = match[1].trim().replace(/^user\s+/i, '').trim();
+          const words = potentialName.split(/\s+/).filter(w => w.length > 0 && w.toLowerCase() !== 'user');
+          if (words.length >= 2) {
+            extractedName = potentialName;
+            console.log('[DB] Extracted name from fallback pattern:', extractedName);
+          }
+        }
+      }
+      
+        if (extractedName && !emailMatch) {
+          console.log('[DB] Looking up user by extracted name:', extractedName, 'from query:', userMsg);
+          
+          // Try multiple search strategies
+          const searchTerms = [
+            extractedName, // Full name
+            ...extractedName.split(/\s+/) // Individual words
+          ];
+          
+          let matchedSeekers = [];
+          
+          // Try each search term
+          for (const searchTerm of searchTerms) {
+            if (searchTerm.length < 2) continue; // Skip very short terms
+            
+            const seekersResult = await fetchJobSeekersFromAPI({ search: searchTerm, limit: 100 }, apiToken);
+            
+            if (seekersResult.success && seekersResult.data && seekersResult.data.length > 0) {
+              // Filter results to find matches
+              const nameParts = extractedName.toLowerCase().split(/\s+/).filter(p => p.length > 1);
+              
+              const filtered = seekersResult.data.filter(seeker => {
+                // Try different name formats
+                const firstName = (seeker.first_name || '').toLowerCase().trim();
+                const lastName = (seeker.last_name || '').toLowerCase().trim();
+                const fullName = `${firstName} ${lastName}`.trim();
+                const reverseName = `${lastName} ${firstName}`.trim();
+                const displayName = (seeker.name || seeker.full_name || '').toLowerCase().trim();
+                
+                const queryLower = extractedName.toLowerCase().trim();
+                
+                // Check multiple matching strategies
+                const exactMatch = fullName === queryLower || reverseName === queryLower || displayName === queryLower;
+                const containsMatch = fullName.includes(queryLower) || reverseName.includes(queryLower) || displayName.includes(queryLower);
+                const partsMatch = nameParts.every(part => 
+                  fullName.includes(part) || reverseName.includes(part) || displayName.includes(part)
+                );
+                const wordMatch = queryLower.split(/\s+/).every(word => 
+                  fullName.includes(word) || reverseName.includes(word) || displayName.includes(word)
+                );
+                
+                return exactMatch || containsMatch || partsMatch || wordMatch;
+              });
+              
+              if (filtered.length > 0) {
+                matchedSeekers = [...matchedSeekers, ...filtered];
+              }
+            }
+          }
+          
+          // Remove duplicates based on email or user ID
+          const uniqueSeekers = matchedSeekers.filter((seeker, index, self) => 
+            index === self.findIndex(s => 
+              (s.email && s.email === seeker.email) || 
+              (s.users_id && s.users_id === seeker.users_id) ||
+              (s.id && s.id === seeker.id)
+            )
+          );
+          
+          if (uniqueSeekers.length > 0) {
+            const seeker = uniqueSeekers[0];
+            const displayName = seeker.name || `${seeker.first_name || ''} ${seeker.last_name || ''}`.trim() || 'Unknown';
+            
+            let response = `✅ **User Found**\n\n`;
+            response += `**Type:** Job Seeker\n`;
+            response += `**Name:** ${displayName}\n`;
+            response += `**Email:** ${seeker.email || 'N/A'}\n`;
+            if (seeker.phone) response += `**Phone:** ${seeker.phone}\n`;
+            if (seeker.province || seeker.district) {
+              response += `**Location:** ${seeker.district || ''}${seeker.district && seeker.province ? ', ' : ''}${seeker.province || ''}\n`;
+            }
+            if (seeker.skills && Array.isArray(seeker.skills) && seeker.skills.length > 0) {
+              response += `**Skills:** ${seeker.skills.slice(0, 5).join(', ')}${seeker.skills.length > 5 ? '...' : ''}\n`;
+            } else if (seeker.skills && typeof seeker.skills === 'string') {
+              response += `**Skills:** ${seeker.skills.substring(0, 100)}${seeker.skills.length > 100 ? '...' : ''}\n`;
+            }
+            if (seeker.created_at) {
+              response += `**Registered:** ${new Date(seeker.created_at).toLocaleDateString()}\n`;
+            }
+            if (seeker.id || seeker.users_id) {
+              response += `**User ID:** ${seeker.users_id || seeker.id}\n`;
+            }
+            
+            if (uniqueSeekers.length > 1) {
+              response += `\n⚠️ **Note:** Found ${uniqueSeekers.length} users with similar names. Showing the first match.`;
+            }
+            
+            return response;
+          }
+          
+          // If still no match, try a broader search without filters
+          const broadSearch = await fetchJobSeekersFromAPI({ limit: 100 }, apiToken);
+          if (broadSearch.success && broadSearch.data && broadSearch.data.length > 0) {
+            const nameParts = extractedName.toLowerCase().split(/\s+/).filter(p => p.length > 1);
+            const matched = broadSearch.data.filter(seeker => {
+              const firstName = (seeker.first_name || '').toLowerCase();
+              const lastName = (seeker.last_name || '').toLowerCase();
+              const fullName = `${firstName} ${lastName}`.trim();
+              const displayName = (seeker.name || seeker.full_name || '').toLowerCase().trim();
+              const queryLower = extractedName.toLowerCase();
+              
+              return fullName.includes(queryLower) || displayName.includes(queryLower) ||
+                     nameParts.every(part => fullName.includes(part) || displayName.includes(part));
+            });
+            
+            if (matched.length > 0) {
+              const seeker = matched[0];
+              const displayName = seeker.name || `${seeker.first_name || ''} ${seeker.last_name || ''}`.trim() || 'Unknown';
+              return `✅ **User Found**\n\n**Type:** Job Seeker\n**Name:** ${displayName}\n**Email:** ${seeker.email || 'N/A'}\n${seeker.phone ? `**Phone:** ${seeker.phone}\n` : ''}`;
+            }
+          }
+          
+          return `❌ **User Not Found**\n\nNo user found with name: **${extractedName}**\n\n✅ **Next Step:** Please verify the name spelling or try searching by email address instead.`;
+        }
+    }
+    
+    // Use intelligent query routing for other queries
     const result = await intelligentQuery(userMsg);
     
     if (!result.success) {
@@ -224,7 +623,7 @@ async function handleDb(userMsg) {
     
     // Format the response via LLM template
     let insights = null;
-    if (!userMsg.toLowerCase().includes('filter') && !userMsg.toLowerCase().includes('search')) {
+    if (!lowerMsg.includes('filter') && !lowerMsg.includes('search')) {
       const i = await getInsights();
       if (i.success && i.available.length > 0) insights = { available: i.available };
     }
@@ -237,7 +636,7 @@ async function handleDb(userMsg) {
 }
 
 // ============ JOB SEEKERS API HANDLER ============
-async function handleJobSeekers(userMsg) {
+async function handleJobSeekers(userMsg, apiToken = null) {
   try {
     console.log('[JOB_SEEKERS] Processing query:', userMsg);
     
@@ -279,8 +678,78 @@ async function handleJobSeekers(userMsg) {
       filters.limit = 20;
     }
     
+    // Check if user wants job seekers by category
+    if (lowerMsg.includes('category') || lowerMsg.includes('by category')) {
+      // Extract category ID or name
+      const categoryMatch = lowerMsg.match(/category[:\s]+(\d+|[a-zA-Z\s]+)/i);
+      if (categoryMatch) {
+        const categoryId = categoryMatch[1].trim();
+        const numericCategoryId = parseInt(categoryId);
+        
+        if (!isNaN(numericCategoryId)) {
+          // Fetch job seekers by category
+          const result = await fetchJobSeekersByCategory(numericCategoryId, filters, apiToken);
+          
+          if (!result.success) {
+            return `❌ **Error Fetching Job Seekers by Category**\n\n${result.error}\n\n✅ **Next Step:** Please verify the category ID is correct.`;
+          }
+          
+          if (!result.data || result.data.length === 0) {
+            return `👥 **No Job Seekers Found in Category ${categoryId}**\n\nNo candidates found for this category.\n\n✅ **Next Step:** Try a different category or check if any job seekers have selected this category.`;
+          }
+          
+          let response = `👥 **Job Seekers in Category ${categoryId}** (${result.count} candidates)\n\n`;
+          result.data.slice(0, 10).forEach((candidate, index) => {
+            response += `${index + 1}. **${candidate.first_name || 'Unknown'} ${candidate.last_name || ''}**\n`;
+            response += `   📧 ${candidate.email || 'No email'}\n`;
+            if (candidate.phone) response += `   📞 ${candidate.phone}\n`;
+            if (candidate.province || candidate.district) {
+              response += `   📍 ${candidate.district || ''}${candidate.district && candidate.province ? ', ' : ''}${candidate.province || ''}\n`;
+            }
+            response += '\n';
+          });
+          
+          if (result.data.length > 10) {
+            response += `\n_...and ${result.data.length - 10} more candidates_\n\n`;
+          }
+          
+          return response;
+        }
+      }
+    }
+    
+      // Check if user wants incomplete profiles
+      if (lowerMsg.includes('incomplete') || lowerMsg.includes('not complete') || lowerMsg.includes('did not complete')) {
+        const result = await fetchIncompleteProfiles(apiToken);
+      
+      if (!result.success) {
+        return `❌ **Error Fetching Incomplete Profiles**\n\n${result.error}`;
+      }
+      
+      if (!result.data || result.data.length === 0) {
+        return `✅ **All Profiles Complete!**\n\nAll job seekers have completed their profiles.`;
+      }
+      
+      let response = `⚠️ **Job Seekers with Incomplete Profiles** (${result.count} users)\n\n`;
+      result.data.slice(0, 20).forEach((user, index) => {
+        response += `${index + 1}. **${user.first_name || 'Unknown'} ${user.last_name || ''}**\n`;
+        response += `   📧 ${user.email || 'No email'}\n`;
+        if (user.missing_fields) {
+          response += `   ⚠️ Missing: ${user.missing_fields.join(', ')}\n`;
+        }
+        response += '\n';
+      });
+      
+      if (result.data.length > 20) {
+        response += `\n_...and ${result.data.length - 20} more users with incomplete profiles_\n\n`;
+      }
+      
+      response += `✅ **Next Steps:** Consider sending reminders to these users to complete their profiles.`;
+      return response;
+    }
+    
     // Fetch job seekers from API
-    const result = await fetchJobSeekersFromAPI(filters);
+    const result = await fetchJobSeekersFromAPI(filters, apiToken);
     
     if (!result.success) {
       return `❌ **Job Seekers API Error**\n\n${result.error}\n\n✅ **Next Step:** Please check if the Job Seekers API service is running and properly configured.`;
@@ -302,7 +771,11 @@ async function handleJobSeekers(userMsg) {
     }
     
     // Format the response
-    let response = `👥 **Job Seekers Found** (${result.count} candidates)\n\n`;
+    let response = `👥 **Job Seekers Found** (${result.count} candidates`;
+    if (result.total && result.total !== result.count) {
+      response += ` out of ${result.total} total`;
+    }
+    response += `)\n\n`;
     
     result.data.slice(0, 10).forEach((candidate, index) => {
       response += `${index + 1}. **${candidate.first_name || 'Unknown'} ${candidate.last_name || ''}**\n`;
@@ -311,7 +784,7 @@ async function handleJobSeekers(userMsg) {
       if (candidate.province || candidate.district) {
         response += `   📍 ${candidate.district || ''}${candidate.district && candidate.province ? ', ' : ''}${candidate.province || ''}\n`;
       }
-      if (candidate.skills && candidate.skills.length > 0) {
+      if (candidate.skills && Array.isArray(candidate.skills) && candidate.skills.length > 0) {
         response += `   🛠️ ${candidate.skills.slice(0, 3).join(', ')}${candidate.skills.length > 3 ? '...' : ''}\n`;
       }
       if (candidate.created_at) {
@@ -325,10 +798,10 @@ async function handleJobSeekers(userMsg) {
     }
     
     response += "✅ **Next Steps:** Would you like me to:\n";
-    response += "• Export this list as a report\n";
+    response += "• Show job seekers by category\n";
+    response += "• Show incomplete profiles\n";
     response += "• Search with different criteria\n";
-    response += "• View detailed profiles\n";
-    response += "• Contact specific candidates";
+    response += "• View detailed profiles";
     
     return response;
     
@@ -476,7 +949,7 @@ async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res)
 
   // Use faster model if available
   const model = process.env.OPENAI_CHAT_MODEL || process.env.OPENAI_FAST_MODEL || 'gpt-4o-mini';
-  
+
   const stream = await openai.chat.completions.create({
     model: model,
     messages,
@@ -622,14 +1095,14 @@ async function chat(req, res) {
       res.end();
     } else if (intent === 'DATABASE') {
       // Handle database queries with real data
-      const dbResponse = await handleDb(text);
+      const dbResponse = await handleDb(text, apiToken);
       await streamText(res, dbResponse);
       await saveAssistantMessage(session.id, dbResponse);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     } else if (intent === 'JOB_SEEKERS') {
       // Handle job seekers API queries
-      const jobSeekersResponse = await handleJobSeekers(text);
+      const jobSeekersResponse = await handleJobSeekers(text, apiToken);
       await streamText(res, jobSeekersResponse);
       await saveAssistantMessage(session.id, jobSeekersResponse);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

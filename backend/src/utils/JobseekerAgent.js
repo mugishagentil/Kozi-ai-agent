@@ -204,9 +204,12 @@ class JobSeekerAgent {
     const explicitJobSearchKeywords = [
       'find job', 'search job', 'looking for job', 'look for job',
       'need job', 'want job', 'need a job', 'want a job',
+      'job of', 'job for', 'jobs of', 'jobs for', // Added for patterns like "I need job of X"
+      'i need job', 'i want job', 'i need a job', 'i want a job',
       'job search', 'searching for job', 'available jobs', 'job opportunities',
       'show me jobs', 'what jobs', 'any jobs', 'list jobs', 'jobs in',
       'jobs for', 'driver jobs', 'sales jobs', 'it jobs', 'teaching jobs',
+      'sales representative', 'construction worker', 'security guard', // Added common job titles
       'show more', 'more jobs', 'next jobs', 'other jobs',
       'job categories', 'job types', 'what kind of jobs'
     ];
@@ -261,6 +264,8 @@ Examples to ACCEPT:
 - "Show me driver jobs" → ACCEPT
 - "What jobs are available?" → ACCEPT
 - "I need a job in Kigali" → ACCEPT
+- "I need job of Sales Representative" → ACCEPT (employee wants to find jobs)
+- "I need job of [X]" → ACCEPT (employee seeking employment, not posting)
 - "Show me more jobs" → ACCEPT (if hasActiveSearch)
 - "What kind of jobs do you have?" → ACCEPT
 
@@ -329,11 +334,18 @@ Return JSON only:
 Extract search filters for job search based on the conversation.
 FILTERS ARE OPTIONAL - if user doesn't specify any, that's fine!
 
+CRITICAL: If user mentions ANY job role, type, or category, extract it immediately:
+- "Sales Representative" → role: "Sales Representative", categoryName: "Salesperson"
+- "I need job of [X]" → role: [X], extract categoryName if possible
+- "Sales Rep", "Salesperson" → categoryName: "Salesperson"
+- ANY job title mentioned → extract as role
+
 SPECIAL HANDLING:
 - If user specifies a number like "show 10 jobs", set maxResults to that number
 - If user says "show all", set maxResults to 50
 - If user says "show remaining", set showRemaining to true
 - For categories, match to EXACT category names from the list below
+- If user says "I need job" or "find me job" → this is a general search request
 
 Available categories: ${categoriesList}
 
@@ -342,12 +354,17 @@ ${recentHistory || 'No previous context'}
 
 Current message: """${userQuery}"""
 
+IMPORTANT: Extract job roles/categories AGGRESSIVELY. If user mentions:
+- "Sales Representative" → role: "Sales Representative" AND categoryName: "Salesperson"
+- "I need job of [X]" → role: [X] (the job type they mentioned)
+- "Just tell me if there is job of [X]" → role: [X], categoryName: match to category list
+
 Return JSON only:
 {
-  "role": "specific role or null",
+  "role": "specific role or null (extract ANY job title/role mentioned)",
   "location": "specific location or null",
   "employmentType": "full-time | part-time | remote | contract | null",
-  "categoryName": "exact category name from the list above or null",
+  "categoryName": "exact category name from the list above or null (match role to category)",
   "maxResults": number or null,
   "isRequestForMore": true|false,
   "showRemaining": true|false,
@@ -386,11 +403,45 @@ Return JSON only:
 
       const parsed = JSON.parse(jsonMatch[0]);
 
+      // Extract role more aggressively from the query
+      let extractedRole = parsed.role;
+      if (!extractedRole) {
+        // Try to extract job role from common patterns
+        const rolePatterns = [
+          /(?:need|want|looking for|find|search|job of|jobs? for)\s+(?:a\s+)?([A-Z][a-zA-Z\s]+?)(?:\s+job|\s+position|\s+work|$|\?|\.)/i,
+          /(?:is there|are there|show me|tell me|find|search).*?job.*?(?:of|for)\s+([A-Z][a-zA-Z\s]+?)(?:\s|$|\?|\.)/i,
+          /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s+(?:job|position|work)/i,
+          /(Sales Representative|Driver|Teacher|Accountant|Construction Worker|Security Guard|Receptionist|Waiter|Waitress|Cashier|Housekeeper|IT Professional|Doctor|Marketing Executive|Data Entry Clerk)/i
+        ];
+        
+        for (const pattern of rolePatterns) {
+          const match = userQuery.match(pattern);
+          if (match && match[1]) {
+            extractedRole = match[1].trim();
+            break;
+          }
+        }
+      }
+      
+      // If still no role, try to extract from the entire query if it mentions job
+      if (!extractedRole && (userQuery.toLowerCase().includes('job') || userQuery.toLowerCase().includes('position'))) {
+        // Look for capitalized words that might be job titles
+        const words = userQuery.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g);
+        if (words && words.length > 0) {
+          // Filter out common non-job words
+          const commonWords = ['I', 'Need', 'Want', 'Looking', 'For', 'Find', 'Search', 'Show', 'Tell', 'There', 'Is', 'Are', 'The', 'A', 'An'];
+          const jobWords = words.filter(w => !commonWords.includes(w));
+          if (jobWords.length > 0) {
+            extractedRole = jobWords[0];
+          }
+        }
+      }
+
       let categoryName = parsed.categoryName || null;
       let categoryId = null;
       
       if (!categoryName) {
-        categoryName = this.mapRoleToCategory(parsed.role || userQuery);
+        categoryName = this.mapRoleToCategory(extractedRole || parsed.role || userQuery);
       }
       
       if (categoryName) {
@@ -409,7 +460,7 @@ Return JSON only:
       }
 
       const filters = {
-        role: parsed.role || null,
+        role: extractedRole || parsed.role || null,
         location: parsed.location || null,
         employmentType: parsed.employmentType || null,
         categoryName,
@@ -419,7 +470,7 @@ Return JSON only:
         showRemaining: parsed.showRemaining || userQuery.toLowerCase().includes('remaining'),
         showAll,
         requestCategories: parsed.requestCategories || userQuery.toLowerCase().includes('categories'),
-        searchType: parsed.searchType || 'general',
+        searchType: parsed.searchType || (categoryName || extractedRole ? 'specific' : 'general'),
       };
 
       if (filters.isRequestForMore && this.conversationContext.lastFilters) {
@@ -453,7 +504,14 @@ Return JSON only:
     
     const roleToCategoryMap = {
       'sales': 'Salesperson',
+      'sales representative': 'Salesperson',
+      'sales rep': 'Salesperson',
+      'salesperson': 'Salesperson',
+      'salesman': 'Salesperson',
+      'saleswoman': 'Salesperson',
+      'representative': 'Salesperson',
       'construction': 'Construction Worker',
+      'construction worker': 'Construction Worker',
       'cleaner': 'Housekeeper',
       'chef': 'Waiter / Waitress',
       'cook': 'Waiter / Waitress',
@@ -465,6 +523,7 @@ Return JSON only:
       'software': 'IT Professional',
       'developer': 'IT Professional',
       'security': 'Security Guard',
+      'security guard': 'Security Guard',
       'waiter': 'Waiter / Waitress',
       'waitress': 'Waiter / Waitress',
       'receptionist': 'Receptionist',
@@ -477,11 +536,43 @@ Return JSON only:
       'hospital': 'Doctor'
     };
     
-    const lowerRole = role.toLowerCase();
+    const lowerRole = role.toLowerCase().trim();
     
+    // First check for exact or near-exact matches
     for (const [roleKey, category] of Object.entries(roleToCategoryMap)) {
-      if (lowerRole.includes(roleKey)) {
+      if (lowerRole === roleKey || 
+          lowerRole.includes(roleKey) || 
+          roleKey.includes(lowerRole) ||
+          lowerRole.replace(/\s+/g, ' ') === roleKey.replace(/\s+/g, ' ')) {
         return category;
+      }
+    }
+    
+    // Check for common job title patterns like "Sales Representative"
+    const commonJobTerms = ['representative', 'agent', 'assistant', 'worker', 'clerk', 'executive', 'manager'];
+    for (const term of commonJobTerms) {
+      if (lowerRole.includes(term)) {
+        // Extract the base role (everything before the term)
+        const baseRole = lowerRole.replace(/\s*(representative|agent|assistant|worker|clerk|executive|manager).*/i, '').trim();
+        if (baseRole) {
+          // Try to match the base role
+          for (const [roleKey, category] of Object.entries(roleToCategoryMap)) {
+            const baseRoleKey = roleKey.split(' ')[0]; // Get first word of role key
+            if (baseRole.includes(baseRoleKey) || baseRoleKey.includes(baseRole)) {
+              return category;
+            }
+          }
+        }
+      }
+    }
+    
+    // Also check if any word in the role matches
+    const roleWords = lowerRole.split(/\s+/);
+    for (const word of roleWords) {
+      for (const [roleKey, category] of Object.entries(roleToCategoryMap)) {
+        if (roleKey.includes(word) || word.includes(roleKey.split(' ')[0])) {
+          return category;
+        }
       }
     }
     
@@ -745,12 +836,67 @@ Generate ONLY the response message, no JSON:
         };
       }
 
-      const shouldHandle = await this.shouldHandleQuery(userMessage, conversationHistory);
-      if (!shouldHandle) {
-        return null;
+      // CRITICAL: Handle greetings directly - never fall back to OpenAI for greetings
+      const lowerMessage = (userMessage || '').toLowerCase().trim();
+      const isGreeting = lowerMessage === 'hello' || lowerMessage === 'hi' || 
+                       lowerMessage.startsWith('hello') || lowerMessage.startsWith('hi');
+      
+      if (isGreeting) {
+        // Always handle greetings with employee-focused response
+        return {
+          type: 'message',
+          message: "Hi there! 😊 How can I assist you today with finding job opportunities? What type of work are you looking for?",
+          jobs: null
+        };
+      }
+
+      // CRITICAL: Handle "I need a job" directly - this is ALWAYS an employee query
+      const wantsJob = lowerMessage.includes('job') && (
+        lowerMessage.includes('need') || lowerMessage.includes('want') || 
+        lowerMessage.includes('looking') || lowerMessage.includes('search')
+      );
+      
+      let shouldHandle = true;
+      if (!wantsJob || lowerMessage.includes('hire') || lowerMessage.includes('post')) {
+        // Only check shouldHandle if it's not clearly "I need a job"
+        shouldHandle = await this.shouldHandleQuery(userMessage, conversationHistory);
+        if (!shouldHandle) {
+          return null;
+        }
+      } else {
+        // "I need a job" is ALWAYS handled - force it
+        this.conversationContext.lastJobSeekerIntent = true;
       }
 
       const filters = await this.extractFiltersFromQuery(userMessage, conversationHistory);
+      
+      // CRITICAL: If user says "I need a job", always search - don't ask more questions
+      if (wantsJob && !filters.categoryName && !filters.role) {
+        // They want a job but didn't specify type - show general jobs or ask ONE clarifying question
+        filters.searchType = filters.searchType || 'general';
+        // But be proactive - try to extract any job type mentioned
+        if (lowerMessage.includes('sales')) {
+          filters.role = 'sales';
+        } else if (lowerMessage.includes('driver')) {
+          filters.role = 'driver';
+        } else if (lowerMessage.includes('construction')) {
+          filters.role = 'construction';
+        }
+      }
+      
+      // If user mentions a job type/role, ensure we search even with minimal filters
+      const hasJobMention = lowerMessage.includes('job') || lowerMessage.includes('position') || 
+                           lowerMessage.includes('work') || lowerMessage.includes('need') ||
+                           filters.categoryName || filters.role;
+      
+      // If user explicitly mentions a job type, search immediately with whatever we have
+      if (hasJobMention && (filters.categoryName || filters.role || lowerMessage.includes('sales') || 
+          lowerMessage.includes('driver') || lowerMessage.includes('construction') || 
+          lowerMessage.includes('teacher') || lowerMessage.includes('accountant') ||
+          lowerMessage.includes('receptionist') || lowerMessage.includes('security'))) {
+        // Force a search even if filters are minimal
+        filters.searchType = filters.searchType || 'general';
+      }
       
       if (filters.requestCategories || filters.searchType === 'categories_list' || userMessage.toLowerCase().includes('categories')) {
         await this.loadCategories();

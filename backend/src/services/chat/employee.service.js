@@ -201,13 +201,63 @@ async function chat(req, res) {
 
     setupSSEHeaders(res);
 
+    // CRITICAL: Handle greetings FIRST - before agent processing
+    // This prevents any fallback to OpenAI that might confuse roles
+    const lowerMessage = latestMessage.toLowerCase().trim();
+    const normalizedMessage = lowerMessage.replace(/[^\w\s]/g, ''); // Remove punctuation for better matching
+    
+    // More comprehensive greeting detection
+    const isGreeting = 
+      normalizedMessage === 'hello' || 
+      normalizedMessage === 'hi' || 
+      normalizedMessage === 'hey' ||
+      normalizedMessage === 'hii' ||
+      normalizedMessage === 'helo' ||
+      normalizedMessage === 'heya' ||
+      lowerMessage === 'good morning' ||
+      lowerMessage === 'good afternoon' ||
+      lowerMessage === 'good evening' ||
+      lowerMessage === 'good night' ||
+      lowerMessage.startsWith('hello') ||
+      lowerMessage.startsWith('hi ') ||
+      lowerMessage.startsWith('hi!') ||
+      lowerMessage.startsWith('hi,') ||
+      lowerMessage.startsWith('hey ');
+    
+    console.log('🔍 [EMPLOYEE CHAT] Greeting check:', { 
+      original: latestMessage, 
+      lowerMessage, 
+      normalizedMessage, 
+      isGreeting 
+    });
+    
+    if (isGreeting) {
+      console.log('✅ [EMPLOYEE CHAT] Handling greeting directly - bypassing agent');
+      const greetingResponse = "Hi there! 😊 How can I assist you today with finding job opportunities? What type of work are you looking for?";
+      
+      // Save to database
+      await prisma.chatMessage.create({
+        data: { 
+          sessionId: Number(sessionId), 
+          role: 'assistant', 
+          content: greetingResponse 
+        },
+      });
+
+      // Stream the response
+      await streamResponseContent(greetingResponse, res, sessionId);
+      return;
+    }
+
     // Get or create agent with API token
     const agent = getAgentForSession(Number(sessionId), apiToken);
     
     // Try agent first
     let agentResult;
     try {
+      console.log('🔍 [EMPLOYEE CHAT] Processing message:', latestMessage.substring(0, 100));
       agentResult = await agent.processMessage(latestMessage);
+      console.log('🔍 [EMPLOYEE CHAT] Agent result:', agentResult ? agentResult.type : 'null (falling back to OpenAI)');
     } catch (error) {
       // Handle authentication errors from the agent
       if (error.code === 'AUTH_ERROR' || error.code === 'NO_TOKEN') {
@@ -370,6 +420,10 @@ const MAX_WEBSITE_CONTEXT_CHARS = 50000;
 async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res) {
   const sessionId = session.id;
   const isSmallTalk = latestMessage.trim().split(/\s+/).length <= 5;
+  const lowerMessage = latestMessage.toLowerCase().trim();
+  const isGreeting = lowerMessage === 'hello' || lowerMessage === 'hi' || lowerMessage.startsWith('hello') || lowerMessage.startsWith('hi');
+  const wantsJob = lowerMessage.includes('job') || lowerMessage.includes('need') || lowerMessage.includes('want') || lowerMessage.includes('looking');
+  
   let websiteContext = '';
   let dbContext = '';
   let contextSource = 'NO_CONTEXT';
@@ -410,6 +464,72 @@ async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res)
 
   // Use employee prompt (different from employer)
   const systemPromptContent = PROMPT_TEMPLATES.employee(websiteContext, dbContext);
+  
+  // CRITICAL: Add explicit role reminder at the start to override any context confusion
+  // Make it context-aware based on message type
+  let roleReminder = '';
+  if (isGreeting) {
+    roleReminder = `⚠️⚠️⚠️ CRITICAL - YOU ARE THE EMPLOYEE AGENT - GREETING ⚠️⚠️⚠️
+
+YOU ARE THE EMPLOYEE (JOB SEEKER) AGENT.
+The user is an EMPLOYEE (JOB SEEKER) who wants to FIND jobs.
+
+❌ ABSOLUTELY FORBIDDEN FOR GREETINGS (NEVER SAY THESE - IF YOU DO, YOU ARE WRONG):
+- "How can I assist you today with your hiring needs?" ← NEVER SAY THIS!
+- "How can I assist you today? 😊 If you're looking to hire" ← ABSOLUTELY FORBIDDEN! NEVER SAY THIS!
+- "How can I assist you today? 😊 If you're looking to hire, I can help you find qualified candidates or guide you through posting a job!" ← ABSOLUTELY FORBIDDEN! NEVER SAY THIS!
+- "If you're looking to hire" ← NEVER SAY THIS! NEVER EVER!
+- "If you're looking to hire, just let me know" ← NEVER SAY THIS! NEVER EVER!
+- "I'm here to help you with hiring!" ← NEVER SAY THIS!
+- "Are you looking to hire someone or post a job?" ← ABSOLUTELY FORBIDDEN! NEVER SAY THIS!
+- "Are you looking to hire someone?" ← ABSOLUTELY FORBIDDEN! NEVER SAY THIS!
+- "Are you looking to post a job?" ← ABSOLUTELY FORBIDDEN! NEVER SAY THIS!
+- "I can help you find qualified candidates" ← NEVER SAY THIS!
+- "guide you through posting a job" ← NEVER SAY THIS!
+- "If you're looking to find candidates" ← NEVER SAY THIS!
+- ANYTHING about "hiring", "candidates", "posting jobs", "qualified candidates", or "employers" ← NEVER!
+- The phrase "looking to hire" is ABSOLUTELY FORBIDDEN - NEVER use it!
+- The phrase "posting a job" is ABSOLUTELY FORBIDDEN - NEVER use it!
+
+✅ CORRECT GREETING (USE EXACTLY ONE OF THESE):
+- "Hi there! 😊 How can I assist you today with finding job opportunities?"
+- "Hello! I'm here to help you find job opportunities. What are you looking for?"
+- "Hi! I can help you search for jobs. What type of work interests you?"
+
+NEVER mention "hiring", "candidates", "employers", "qualified candidates", or "posting jobs" in your greeting.
+You help employees FIND jobs, period.\n\n`;
+  } else if (wantsJob) {
+    roleReminder = `⚠️⚠️⚠️ CRITICAL - USER WANTS A JOB - READ THIS FIRST ⚠️⚠️⚠️
+
+THE USER WANTS TO FIND A JOB. They are an EMPLOYEE (JOB SEEKER).
+
+❌ ABSOLUTELY FORBIDDEN:
+- "I'm here to help you with hiring!" ← WRONG! User wants a JOB, not to hire!
+- "If you're looking to find candidates" ← WRONG! User wants a JOB!
+- "Would you like to post a job or search for candidates?" ← WRONG! User wants a JOB!
+- ANYTHING about "hiring", "candidates", "posting jobs", or "employers" ← NEVER!
+
+✅ CORRECT RESPONSE:
+- "I'd be happy to help you find a job! What type of work are you looking for?"
+- "Let me help you search for job opportunities. What position interests you?"
+
+Help them FIND jobs immediately. Do NOT mention hiring or employers.\n\n`;
+  } else {
+    roleReminder = `⚠️⚠️⚠️ CRITICAL REMINDER - READ THIS FIRST ⚠️⚠️⚠️
+
+YOU ARE THE EMPLOYEE (JOB SEEKER) AGENT.
+The user is an EMPLOYEE (JOB SEEKER).
+They want to FIND and APPLY for jobs.
+They do NOT want to post jobs or hire candidates.
+
+❌ FORBIDDEN RESPONSES:
+- "How can I assist you today with your hiring needs?" ← WRONG!
+- "I'm here to help you with hiring!" ← WRONG!
+- "If you're looking to find candidates" ← WRONG!
+- "Would you like to post a job or search for candidates?" ← WRONG!
+
+NEVER mention employers, hiring, candidates, or posting jobs when helping employees.\n\n`;
+  }
 
   // Reduce number of messages for faster processing
   const previousMessages = await prisma.chatMessage.findMany({
@@ -419,10 +539,12 @@ async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res)
   });
 
   const messages = [
-    { role: 'system', content: systemPromptContent },
+    { role: 'system', content: roleReminder + systemPromptContent },
     ...previousMessages.reverse().slice(-6).map((m) => ({ role: m.role, content: m.content })), // Reduced from 10 to 6
     { role: 'user', content: latestMessage },
   ];
+  
+  console.log('🔍 [EMPLOYEE CHAT] Using employee prompt with role reminder');
 
   try {
     // Use faster model if available
@@ -437,15 +559,40 @@ async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res)
     });
 
     let fullResponse = '';
+    let responseChunks = [];
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content || '';
       if (content) {
         fullResponse += content;
+        responseChunks.push(content);
         res.write(`data: ${JSON.stringify({ content })}\n\n`);
       }
     }
 
+    // CRITICAL: Final check on complete response - block any employer language
     if (fullResponse) {
+      const lowerResponse = fullResponse.toLowerCase();
+      const forbiddenPhrases = [
+        'are you looking to hire',
+        'looking to hire',
+        'post a job',
+        'posting a job',
+        'find candidates',
+        'qualified candidates',
+        'hiring needs',
+        'assisting employers',
+        'can help you find qualified',
+        'guide you through posting'
+      ];
+      
+      const containsForbidden = forbiddenPhrases.some(phrase => lowerResponse.includes(phrase));
+      if (containsForbidden) {
+        console.error('🚨 [EMPLOYEE CHAT] FORBIDDEN EMPLOYER LANGUAGE DETECTED! Original response:', fullResponse.substring(0, 200));
+        // Replace with correct employee response
+        fullResponse = "Hi there! 😊 How can I assist you today with finding job opportunities? What type of work are you looking for?";
+        console.log('✅ [EMPLOYEE CHAT] Replaced with employee-focused response');
+      }
+      
       await prisma.chatMessage.create({
         data: { sessionId: Number(sessionId), role: 'assistant', content: fullResponse },
       });

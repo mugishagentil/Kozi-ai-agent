@@ -469,13 +469,26 @@ async function handleOpenAIChat(session, latestMessage, res) {
 async function getUserChatSessions(req, res) {
   try {
     const users_id = req.query.users_id;
-    if (!users_id) {
+    
+    // Strict validation - check for undefined, null, empty string, or invalid values
+    const usersIdStr = String(users_id || '').trim();
+    if (!users_id || usersIdStr === '' || usersIdStr === 'undefined' || usersIdStr === 'null' || usersIdStr === 'NaN') {
+      console.error('❌ getUserChatSessions: Missing or invalid users_id:', users_id);
       return res.status(400).json({ error: 'User ID is required to view your chat sessions.' });
     }
 
+    // Ensure users_id is a valid number
+    const userIdNum = Number(usersIdStr);
+    if (isNaN(userIdNum) || userIdNum <= 0 || !Number.isInteger(userIdNum)) {
+      console.error('❌ getUserChatSessions: Invalid users_id format:', users_id, '->', userIdNum);
+      return res.status(400).json({ error: 'Invalid user ID provided. Must be a positive integer.' });
+    }
+
+    console.log('📋 getUserChatSessions: Fetching sessions for user:', userIdNum, 'role: employer');
+
     const sessions = await prisma.chatSession.findMany({
       where: { 
-        users_id: Number(users_id),
+        users_id: userIdNum,
         role_type: 'employer'
       },
       include: { 

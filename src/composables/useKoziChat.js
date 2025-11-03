@@ -34,12 +34,28 @@ export function useKoziChat() {
   
   // Get role from localStorage
   const getRoleFromLocalStorage = () => {
+    // CRITICAL FIX: Check route FIRST before localStorage
+    // This ensures the correct AI agent is used based on the current page
+    const currentPath = window.location.pathname
+    
+    // Route-based detection (highest priority)
+    if (currentPath.includes('/admin')) {
+      return 'admin'
+    } else if (currentPath.includes('/employer/') || currentPath.includes('/jobprovider/')) {
+      return 'employer'
+    } else if (currentPath.includes('/dashboard/ai-agent')) {
+      // Explicitly return employee for employee AI agent page
+      // This prevents employer responses when on the employee AI agent page
+      return 'employee'
+    }
+    
+    // Only check localStorage if route doesn't determine the role
     const employeeRoleId = localStorage.getItem('employeeRoleId')
     const employerRoleId = localStorage.getItem('employerRoleId')
     const adminRoleId = localStorage.getItem('adminRoleId')
     const selectedRoleId = localStorage.getItem('selectedRoleId')
     
-    // Check selected role first
+    // Check selected role
     if (selectedRoleId === '2' || employerRoleId === '2') {
       return 'employer'
     } else if (selectedRoleId === '3' || adminRoleId === '3') {
@@ -48,14 +64,7 @@ export function useKoziChat() {
       return 'employee'
     }
     
-    // Fallback to URL detection
-    const currentPath = window.location.pathname
-    if (currentPath.includes('/admin')) {
-      return 'admin'
-    } else if (currentPath.includes('/employer/') || currentPath.includes('/jobprovider/')) {
-      return 'employer'
-    }
-    
+    // Default fallback
     return 'employee'
   }
   
@@ -122,28 +131,28 @@ export function useKoziChat() {
       await loadHistoryFromBackend()
     } else {
       // Fallback to localStorage if user not initialized yet
-      const savedHistory = localStorage.getItem('kozi-chat-history')
-      if (savedHistory) {
-        try {
-          const parsedHistory = JSON.parse(savedHistory)
-          history.value = parsedHistory.map(item => ({
-            ...item,
-            timestamp: item.timestamp || new Date(item.createdAt).getTime() || Date.now(),
-            createdAt: item.createdAt || new Date(item.timestamp) || new Date()
-          }))
+    const savedHistory = localStorage.getItem('kozi-chat-history')
+    if (savedHistory) {
+      try {
+        const parsedHistory = JSON.parse(savedHistory)
+        history.value = parsedHistory.map(item => ({
+          ...item,
+          timestamp: item.timestamp || new Date(item.createdAt).getTime() || Date.now(),
+          createdAt: item.createdAt || new Date(item.timestamp) || new Date()
+        }))
           console.log('Loaded localStorage chat history (fallback):', history.value)
-        } catch (e) {
-          console.warn('Failed to load localStorage chat history:', e)
-          history.value = []
-        }
-      } else {
+      } catch (e) {
+        console.warn('Failed to load localStorage chat history:', e)
         history.value = []
       }
-      
+    } else {
+      history.value = []
+    }
+    
       // Try loading from backend once user is available
       setTimeout(async () => {
-        if (currentUser.value) {
-          await loadHistoryFromBackend()
+    if (currentUser.value) {
+      await loadHistoryFromBackend()
         }
       }, 1000)
     }
@@ -289,7 +298,7 @@ const initializeUser = async () => {
         console.warn('Failed to sync history with backend:', e)
       }
     }
-    
+
     console.log('Saved chat to history:', chatEntry)
   }
 
@@ -313,7 +322,7 @@ const initializeUser = async () => {
       console.warn('No user available for new chat — initializing user')
       try {
         await initializeUser()
-      } catch (e) {
+    } catch (e) {
         console.error('Failed to initialize user:', e)
       }
     }
@@ -332,10 +341,93 @@ const initializeUser = async () => {
     // Auto-start chat if needed
     if (!chatStarted.value || !currentSession.value) {
       console.log('Auto-starting chat session with first message:', text)
+      
+      // If users_id is missing, try to fetch it first (for admin users)
+      let users_id = currentUser.value.users_id;
+      if (!users_id) {
+        console.log('⚠️ users_id is missing, attempting to fetch it...');
+        try {
+          // Try to get userId from external API (same logic as getUserFromLocalStorage)
+          const userEmail = localStorage.getItem('userEmail');
+          const employeeToken = localStorage.getItem('employeeToken');
+          const employerToken = localStorage.getItem('employerToken');
+          const adminToken = localStorage.getItem('adminToken');
+          const agentToken = localStorage.getItem('agentToken');
+          const token = employeeToken || employerToken || adminToken || agentToken;
+          
+          if (userEmail && token) {
+            try {
+              const resId = await fetch(
+                `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`,
+                {
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                }
+              );
+              
+              if (resId.ok) {
+                const dataId = await resId.json();
+                if (dataId.users_id) {
+                  users_id = dataId.users_id;
+                  currentUser.value.users_id = users_id; // Update current user
+                  console.log('✅ Fetched users_id from API:', users_id);
+                }
+              } else {
+                // If API fails, try extracting from token payload as fallback (for all roles)
+                console.log('⚠️ API call failed, trying to extract userId from token payload...');
+                try {
+                  const payload = JSON.parse(atob(token.split(".")[1]));
+                  console.log('📋 Token payload:', payload);
+                  console.log('📋 Token payload keys:', Object.keys(payload));
+                  
+                  // Check various possible userId fields in token
+                  if (payload.userId || payload.user_id || payload.id || payload.users_id || 
+                      payload.sub || payload.userId || payload.userID) {
+                    users_id = payload.userId || payload.user_id || payload.id || payload.users_id || 
+                              payload.sub || payload.userId || payload.userID;
+                    currentUser.value.users_id = users_id;
+                    console.log('✅ Extracted users_id from token payload:', users_id);
+                  } else {
+                    console.warn('⚠️ Token payload does not contain userId field. Available keys:', Object.keys(payload));
+                    // Log the full payload for debugging
+                    console.log('📋 Full token payload:', JSON.stringify(payload, null, 2));
+                  }
+                } catch (e) {
+                  console.warn('⚠️ Could not extract userId from token:', e);
+                }
+              }
+            } catch (fetchError) {
+              console.warn('⚠️ Error fetching userId:', fetchError);
+            }
+          }
+          
+          if (!users_id) {
+            throw new Error('Unable to retrieve user ID. Please check your connection and try again, or log in again.');
+          }
+        } catch (e) {
+          console.error('❌ Failed to get users_id:', e);
+          // Only show error message if we haven't already shown one
+          const hasErrorAlready = messages.value.some(m => 
+            m.sender === 'assistant' && 
+            m.text && 
+            (m.text.includes('retrieve your user information') || 
+             m.text.includes('could not retrieve') ||
+             m.text.includes('need to be logged in'))
+          );
+          
+          if (!hasErrorAlready) {
+            addBotMessage('Sorry, I could not retrieve your user information. Please refresh the page and try again.');
+          }
+          return;
+        }
+      }
+      
       try {
         loading.value = true
         // Pass the actual first message so backend can generate a meaningful title
-        const data = await startSession(currentUser.value.users_id, text, getApiPrefix())
+        const data = await startSession(users_id, text, getApiPrefix())
 
         if (data?.data?.session_id) {
           currentSession.value = data.data.session_id
@@ -357,8 +449,31 @@ const initializeUser = async () => {
           throw new Error('Failed to start session')
         }
       } catch (e) {
-        console.error('Auto-start failed:', e)
-        addBotMessage('Sorry, I could not connect right now. Please try again in a moment.')
+        console.error('❌ Auto-start failed:', e)
+        console.error('❌ Error details:', {
+          message: e.message,
+          users_id: users_id,
+          apiPrefix: getApiPrefix(),
+          hasToken: !!localStorage.getItem('employeeToken') || !!localStorage.getItem('employerToken') || !!localStorage.getItem('adminToken') || !!localStorage.getItem('agentToken')
+        })
+        
+        // Show more specific error message based on the error
+        let errorMessage = 'Sorry, I could not connect right now. Please try again in a moment.'
+        if (e.message) {
+          if (e.message.includes('users_id')) {
+            errorMessage = 'Unable to retrieve your user ID. Please refresh the page and try again.'
+          } else if (e.message.includes('401') || e.message.includes('Unauthorized')) {
+            errorMessage = 'Your session has expired. Please log in again.'
+          } else if (e.message.includes('403') || e.message.includes('Forbidden')) {
+            errorMessage = 'You don\'t have permission to start a chat. Please check your account settings.'
+          } else if (e.message.includes('500') || e.message.includes('Internal Server Error')) {
+            errorMessage = 'Server error occurred. Please try again in a moment.'
+          } else if (e.message.includes('Network') || e.message.includes('fetch')) {
+            errorMessage = 'Network error. Please check your internet connection and try again.'
+          }
+        }
+        
+        addBotMessage(errorMessage)
         loading.value = false
         return
       } finally {
@@ -559,6 +674,62 @@ const initializeUser = async () => {
     if (!currentUser.value) {
       console.warn('⚠️ Cannot load history: no current user')
       return
+    }
+    
+    // If users_id is missing, try to fetch it first
+    if (!currentUser.value.users_id) {
+      console.log('⚠️ users_id missing for history load, attempting to fetch...');
+      try {
+        const userEmail = localStorage.getItem('userEmail');
+        const employeeToken = localStorage.getItem('employeeToken');
+        const employerToken = localStorage.getItem('employerToken');
+        const adminToken = localStorage.getItem('adminToken');
+        const agentToken = localStorage.getItem('agentToken');
+        const token = employeeToken || employerToken || adminToken || agentToken;
+        
+        if (userEmail && token) {
+          // Try API first
+          try {
+            const resId = await fetch(
+              `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`,
+              {
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+              }
+            );
+            
+            if (resId.ok) {
+              const dataId = await resId.json();
+              if (dataId.users_id) {
+                currentUser.value.users_id = dataId.users_id;
+                console.log('✅ Fetched users_id for history:', currentUser.value.users_id);
+              }
+            } else {
+              // Try token payload
+              try {
+                const payload = JSON.parse(atob(token.split(".")[1]));
+                if (payload.userId || payload.user_id || payload.id || payload.users_id || payload.sub) {
+                  currentUser.value.users_id = payload.userId || payload.user_id || payload.id || payload.users_id || payload.sub;
+                  console.log('✅ Extracted users_id from token for history:', currentUser.value.users_id);
+                }
+              } catch (e) {
+                console.warn('⚠️ Could not extract userId from token for history:', e);
+              }
+            }
+          } catch (fetchError) {
+            console.warn('⚠️ Error fetching userId for history:', fetchError);
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ Failed to get users_id for history load:', e);
+      }
+    }
+    
+    if (!currentUser.value.users_id) {
+      console.warn('⚠️ Cannot load history: no user ID available after fetch attempt');
+      return;
     }
     
     try {
@@ -888,15 +1059,17 @@ async function getUserFromLocalStorage() {
     const employeeToken = localStorage.getItem('employeeToken')
     const employerToken = localStorage.getItem('employerToken')
     const adminToken = localStorage.getItem('adminToken')
+    const agentToken = localStorage.getItem('agentToken')
     
     // Try all possible token locations
-    const token = employeeToken || employerToken || adminToken
+    const token = employeeToken || employerToken || adminToken || agentToken
     
     console.log('🔍 LocalStorage user data:', {
       userEmail,
       hasEmployeeToken: !!employeeToken,
       hasEmployerToken: !!employerToken,
       hasAdminToken: !!adminToken,
+      hasAgentToken: !!agentToken,
       hasAnyToken: !!token,
       allKeys: Object.keys(localStorage)
     })
@@ -910,7 +1083,14 @@ async function getUserFromLocalStorage() {
     }
     
     // Fetch user_id from API using the email
+    // For admin users, the external API might reject adminToken, so we'll try to get userId
+    // from the token payload or create a user object without userId (will be fetched later)
     console.log('🔍 Fetching user ID for email:', userEmail)
+    
+    let users_id = null;
+    let dataId = null;
+    
+    try {
     const resId = await fetch(
       `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`,
       {
@@ -921,36 +1101,83 @@ async function getUserFromLocalStorage() {
       }
     );
     
-    if (!resId.ok) {
-      console.error('❌ User ID fetch failed:', resId.status, await resId.text())
-      throw new Error(`Failed to fetch user ID: ${resId.status}`)
-    }
-    
-    const dataId = await resId.json();
+      if (resId.ok) {
+        dataId = await resId.json();
     console.log('📋 User ID response:', dataId)
-    
-    if (!dataId.users_id) {
-      throw new Error('No user ID returned from API')
+        users_id = dataId.users_id;
+      } else {
+        const errorText = await resId.text();
+        console.warn('⚠️ User ID fetch failed:', resId.status, errorText)
+        
+        // Try to extract userId from token payload as fallback (for ALL roles)
+        try {
+          const payload = JSON.parse(atob(token.split(".")[1]));
+          console.log('🔍 Token payload:', payload);
+          console.log('🔍 Available token payload keys:', Object.keys(payload));
+          
+          // Check various possible userId fields in token payload
+          if (payload.userId || payload.user_id || payload.id || payload.users_id || 
+              payload.sub || payload.userId || payload.userID) {
+            users_id = payload.userId || payload.user_id || payload.id || payload.users_id || 
+                      payload.sub || payload.userId || payload.userID;
+            console.log('✅ Extracted users_id from token payload:', users_id);
+          } else {
+            console.warn('⚠️ Token payload does not contain userId field. Available keys:', Object.keys(payload));
+            
+            // Try alternative approaches - check if email or other identifier can help
+            // Some tokens might have email and we can use that to look up user differently
+            if (payload.email) {
+              console.log('📧 Token contains email:', payload.email);
+            }
+          }
+        } catch (tokenError) {
+          console.warn('⚠️ Could not extract userId from token:', tokenError);
+        }
+        
+        // If still no userId and it's a 403/401, allow creating user object without userId
+        // The chat will work and we can fetch userId later when needed
+        if (!users_id && (resId.status === 403 || resId.status === 401)) {
+          console.warn('⚠️ External API rejected token, but continuing with basic user object');
+          // Don't throw error, continue without userId
+        } else if (!users_id) {
+          // For other errors, still try to continue but log warning
+          console.warn('⚠️ Could not get userId, but continuing anyway');
+        }
+      }
+    } catch (fetchError) {
+      console.warn('⚠️ Error fetching user ID:', fetchError);
+      // Continue without userId - chat can still work
+      // Don't throw error, we'll create user object without userId
     }
-
-    // Build basic user object first
+    
+    // Build basic user object - allow null users_id for all roles
+    // users_id can be fetched later when needed (in sendMessage)
     const user = {
-      users_id: dataId.users_id,
+      users_id: users_id || null, // Can be null - will be fetched later if needed
       email: userEmail,
       first_name: userEmail.split('@')[0] || 'User',
       last_name: '',
       token: token
     };
+    
+    // If we don't have users_id yet, log it but don't fail
+    // This is OK - users_id will be fetched when the user sends their first message
+    if (!user.users_id) {
+      console.warn('⚠️ User object created without userId. It will be fetched when needed.');
+      // DON'T throw error - allow user to proceed
+    }
 
     // Try to fetch profile data (but don't fail if this doesn't work)
     try {
       let profile = null;
       
+      // Only try to fetch profile if we have users_id
+      if (user.users_id) {
       // Try multiple endpoints
       const endpoints = [
-        `https://apis.kozi.rw/provider/view_profile/${dataId.users_id}`,
-        `https://apis.kozi.rw/employee/view_profile/${dataId.users_id}`,
-        `https://apis.kozi.rw/users/profile/${dataId.users_id}`
+          `https://apis.kozi.rw/provider/view_profile/${user.users_id}`,
+          `https://apis.kozi.rw/employee/view_profile/${user.users_id}`,
+          `https://apis.kozi.rw/users/profile/${user.users_id}`
       ];
       
       for (const endpoint of endpoints) {
@@ -977,6 +1204,9 @@ async function getUserFromLocalStorage() {
       if (profile) {
         user.first_name = profile.first_name || profile.firstName || user.first_name;
         user.last_name = profile.last_name || profile.lastName || user.last_name;
+        }
+      } else {
+        console.log('⏭️ Skipping profile fetch - no userId available');
       }
       
     } catch (profileError) {
@@ -1000,8 +1230,9 @@ function getAuthHeaders() {
   const employeeToken = localStorage.getItem('employeeToken');
   const employerToken = localStorage.getItem('employerToken'); 
   const adminToken = localStorage.getItem('adminToken');
+  const agentToken = localStorage.getItem('agentToken');
   
-  const token = employeeToken || employerToken || adminToken;
+  const token = employeeToken || employerToken || adminToken || agentToken;
   
   const headers = {
     'Content-Type': 'application/json'
@@ -1017,6 +1248,7 @@ function getAuthHeaders() {
     hasEmployeeToken: !!employeeToken,
     hasEmployerToken: !!employerToken, 
     hasAdminToken: !!adminToken,
+    hasAgentToken: !!agentToken,
     hasAnyToken: !!token,
     headers
   });
@@ -1025,20 +1257,37 @@ function getAuthHeaders() {
 }
 
 async function startSession(users_id, firstMessage, rolePrefix = '/chat') {
+  // Validate users_id before making the request
+  if (!users_id || isNaN(Number(users_id))) {
+    console.error('❌ startSession: Invalid users_id:', users_id)
+    throw new Error('Invalid user ID. Please refresh the page and try again.')
+  }
+  
   const url = `${API_BASE}${rolePrefix}/new`
   console.log('🚀 Starting chat session at:', url, 'with API_BASE:', API_BASE)
+  console.log('🚀 Request body:', { users_id: Number(users_id), firstMessage: firstMessage?.substring(0, 50) + '...' })
+  
+  try {
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ users_id, firstMessage }), 
+      body: JSON.stringify({ users_id: Number(users_id), firstMessage }), 
     timeout: 10000
   })
+    
   if (!res.ok) {
     const errorText = await res.text().catch(() => '')
-    console.error('startSession error:', res.status, errorText)
-    throw new Error(`Start session failed (${res.status}). ${errorText || ''}`)
+      console.error('❌ startSession error:', res.status, errorText)
+      throw new Error(`Start session failed (${res.status}). ${errorText || 'Unknown error'}`)
+    }
+    
+    const data = await res.json()
+    console.log('✅ startSession success:', data)
+    return data
+  } catch (e) {
+    console.error('❌ startSession exception:', e)
+    throw e
   }
-  return await res.json()
 }
 
 // 🚀 Streaming message function

@@ -12,6 +12,7 @@ model documents {
   title     String? @db.VarChar(255)
   content   String? @db.Text
   embedding String? @db.LongText
+  source    String? @db.VarChar(100) // "knowledge_base", "website", "pdf", etc.
 }
 
 model ChatSession {

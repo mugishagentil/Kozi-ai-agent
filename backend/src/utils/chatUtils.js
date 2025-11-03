@@ -63,7 +63,7 @@ async function searchSimilarDocuments(query, limit = 5) {
 
   const docs = await prisma.documents.findMany({
     where: { embedding: { not: null } },
-    select: { id: true, title: true, content: true, embedding: true },
+    select: { id: true, title: true, content: true, embedding: true, source: true },
   });
 
   const results = docs
@@ -77,14 +77,25 @@ async function searchSimilarDocuments(query, limit = 5) {
 
         if (!emb.length) return null;
 
-        return { ...doc, similarity: cosineSimilarity(queryEmbedding, emb) };
+        const similarity = cosineSimilarity(queryEmbedding, emb);
+        
+        // Boost similarity for Knowledge Base chunks (priority for official knowledge base)
+        const isKnowledgeBase = doc.source === 'knowledge_base' || doc.title?.includes('Kozi_Rwanda_Knowledge_Base');
+        const boostedSimilarity = isKnowledgeBase ? Math.min(similarity * 1.2, 1.0) : similarity;
+
+        return { ...doc, similarity: boostedSimilarity, isKnowledgeBase };
       } catch (err) {
         console.error('Embedding parse error', doc.id, err);
         return null;
       }
     })
     .filter(Boolean)
-    .sort((a, b) => b.similarity - a.similarity)
+    .sort((a, b) => {
+      // First sort by Knowledge Base priority, then by similarity
+      if (a.isKnowledgeBase && !b.isKnowledgeBase) return -1;
+      if (!a.isKnowledgeBase && b.isKnowledgeBase) return 1;
+      return b.similarity - a.similarity;
+    })
     .slice(0, limit);
 
   return results;

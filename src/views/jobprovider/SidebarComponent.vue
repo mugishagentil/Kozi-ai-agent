@@ -465,19 +465,28 @@ export default {
     
     const handleChatHistoryUpdate = async () => {
       // Reload chat history when a new message is sent (even if dropdown is closed)
-      console.log('📢 Sidebar: Chat history updated event received');
+      console.log('📢 Employer Sidebar: Chat history updated event received');
+      console.log('📢 Employer Sidebar: Current userId:', userId.value);
+      console.log('📢 Employer Sidebar: Current loadingHistory:', loadingHistory.value);
       // Always try to load history when event fires, even if dropdown is closed
       // This ensures history is ready when user opens dropdown
       if (userId.value) {
-        console.log('📢 Sidebar: Reloading history due to update event');
-        await loadChatHistory();
+        console.log('📢 Employer Sidebar: Reloading history due to update event');
+        // Add a small delay to ensure backend has processed the new session
+        setTimeout(async () => {
+          await loadChatHistory();
+          console.log('✅ Employer Sidebar: History reload completed. Sessions:', chatHistory.value.length);
+        }, 300);
       } else {
-        console.warn('⚠️ Sidebar: Cannot reload history - no user ID, getting it first');
+        console.warn('⚠️ Employer Sidebar: Cannot reload history - no user ID, getting it first');
         // Try to get user ID first
         await getUserId();
         if (userId.value) {
-          console.log('📢 Sidebar: Got user ID, now loading history from event...');
-          await loadChatHistory();
+          console.log('📢 Employer Sidebar: Got user ID, now loading history from event...');
+          setTimeout(async () => {
+            await loadChatHistory();
+            console.log('✅ Employer Sidebar: History reload completed after getting userId. Sessions:', chatHistory.value.length);
+          }, 300);
         }
       }
     };

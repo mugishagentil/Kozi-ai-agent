@@ -71,7 +71,10 @@
                     <div class="history-header">
                       <span>HISTORY</span>
                     </div>
-                    <div v-if="chatHistory.length > 0" class="chat-history-list">
+                    <div v-if="loadingHistory" class="empty-history">
+                      <p>Loading chats...</p>
+                    </div>
+                    <div v-else-if="chatHistory.length > 0" class="chat-history-list">
                       <div
                         v-for="(chat, index) in chatHistory"
                         :key="chat.sessionId || index"
@@ -284,6 +287,9 @@ export default {
       },
       { immediate: false }
     );
+    
+    // Listen for chat history updates
+    window.addEventListener('chatHistoryUpdated', this.handleChatHistoryUpdate);
 
     this.menuItems.forEach(item => {
       if (item.children && this.isMainMenuActive(item)) {
@@ -293,6 +299,7 @@ export default {
   },
   beforeUnmount() {
     window.removeEventListener('resize', this.checkIfMobile);
+    window.removeEventListener('chatHistoryUpdated', this.handleChatHistoryUpdate);
   },
   methods: {
     toggleSidebar() {
@@ -495,6 +502,30 @@ export default {
       } catch (err) {
         console.error("Error deleting chat:", err);
         alert("Failed to delete chat. Please try again.");
+      }
+    },
+    async handleChatHistoryUpdate() {
+      // Reload chat history when a new message is sent (even if dropdown is closed)
+      console.log('📢 Admin Sidebar: Chat history updated event received');
+      console.log('📢 Admin Sidebar: Current userId:', this.userId);
+      console.log('📢 Admin Sidebar: Current loadingHistory:', this.loadingHistory);
+      if (this.userId) {
+        console.log('📢 Admin Sidebar: Reloading history due to update event');
+        // Add a small delay to ensure backend has processed the new session
+        setTimeout(async () => {
+          await this.loadChatHistory();
+          console.log('✅ Admin Sidebar: History reload completed. Sessions:', this.chatHistory.length);
+        }, 300);
+      } else {
+        console.warn('⚠️ Admin Sidebar: Cannot reload history - no user ID, getting it first');
+        await this.getUserId();
+        if (this.userId) {
+          console.log('📢 Admin Sidebar: Got user ID, now loading history from event...');
+          setTimeout(async () => {
+            await this.loadChatHistory();
+            console.log('✅ Admin Sidebar: History reload completed after getting userId. Sessions:', this.chatHistory.length);
+          }, 300);
+        }
       }
     }
   },

@@ -56,7 +56,10 @@
                 <div class="history-header">
                   <span>HISTORY</span>
                 </div>
-                <div v-if="chatHistory.length > 0" class="chat-history-list">
+                <div v-if="loadingHistory" class="empty-history">
+                  <p>Loading chats...</p>
+                </div>
+                <div v-else-if="chatHistory.length > 0" class="chat-history-list">
                   <div
                     v-for="(chat, index) in chatHistory"
                     :key="chat.sessionId || index"
@@ -185,20 +188,24 @@ export default {
       return 'https://kozi-ai-agent-production.up.railway.app/api'
     }
   },
-  mounted() {
+  async mounted() {
     console.log('🟢 Job Seeker Sidebar mounted, initializing...');
-    this.getUserIdAndCheckProfile();
+    
+    // Initialize user ID and profile check first
+    await this.getUserIdAndCheckProfile();
+    
     // Set currentSessionId from route query
     if (this.$route.query.sessionId) {
       this.currentSessionId = String(this.$route.query.sessionId);
     }
+    
     // Watch route to update currentSessionId
     this.$watch(
       () => this.$route.query.sessionId,
       (sessionId) => {
         this.currentSessionId = sessionId ? String(sessionId) : null;
-        // Reload history when a session is loaded via URL (if dropdown is open)
-        if (sessionId && this.userId && this.aiDropdownOpen) {
+        // Reload history when a session is loaded via URL
+        if (sessionId && this.userId) {
           console.log('🔄 Job Seeker Sidebar: Session ID changed in URL, reloading history...');
           this.loadChatHistory();
         }
@@ -208,6 +215,12 @@ export default {
     
     // Listen for chat history updates
     window.addEventListener('chatHistoryUpdated', this.handleChatHistoryUpdate);
+    
+    // Load initial chat history
+    if (this.userId && this.isProfileComplete) {
+      console.log('📋 Job Seeker Sidebar: Loading initial chat history on mount');
+      await this.loadChatHistory();
+    }
   },
   beforeUnmount() {
     window.removeEventListener('chatHistoryUpdated', this.handleChatHistoryUpdate);
@@ -296,37 +309,66 @@ export default {
   methods: {
     async getUserIdAndCheckProfile() {
       const token = localStorage.getItem("employeeToken");
-      if (!token) return;
+      if (!token) {
+        console.warn('⚠️ Job Seeker Sidebar: No employeeToken found');
+        return;
+      }
 
       try {
         const payload = JSON.parse(atob(token.split(".")[1]));
         this.userEmail = payload.email;
+        console.log('📧 Job Seeker Sidebar: Getting user ID for email:', this.userEmail);
 
-        // Get user ID
-        const res = await fetch(`${this.apiBase}/get_user_id_by_email/${this.userEmail}`, {
-          headers: { Authorization: `Bearer ${token}` },
+        // Get user ID from external API (same as composable)
+        const userIdUrl = `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(this.userEmail)}`;
+        console.log('📧 Job Seeker Sidebar: Fetching userId from:', userIdUrl);
+        
+        const res = await fetch(userIdUrl, {
+          headers: { 
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}` 
+          },
         });
+        
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error('❌ Job Seeker Sidebar: User ID fetch failed:', res.status, errorText);
+          throw new Error(`Failed to fetch user ID: ${res.status}`);
+        }
+        
         const data = await res.json();
+        console.log('📋 Job Seeker Sidebar: User ID response:', data);
 
-        if (res.ok) {
+        if (data.users_id) {
           this.userId = data.users_id;
+          console.log('✅ Job Seeker Sidebar: Got user ID:', this.userId);
 
-          // Check profile completeness
-          const checkRes = await fetch(`${this.apiBase}/seekers/check_columns/${this.userId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const checkData = await checkRes.json();
-          this.isProfileComplete = checkData.isComplete;
-          
-          // Load chat history if profile is complete
-          if (this.isProfileComplete) {
-            this.loadChatHistory();
+          // Check profile completeness (try both API bases)
+          try {
+            const checkRes = await fetch(`${this.apiBase}/seekers/check_columns/${this.userId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            
+            if (checkRes.ok) {
+              const checkData = await checkRes.json();
+              this.isProfileComplete = checkData.isComplete;
+              console.log('✅ Job Seeker Sidebar: Profile check complete:', {
+                userId: this.userId,
+                isComplete: this.isProfileComplete
+              });
+            } else {
+              console.warn('⚠️ Job Seeker Sidebar: Profile check failed, assuming complete');
+              this.isProfileComplete = true; // Assume complete if check fails
+            }
+          } catch (profileErr) {
+            console.warn('⚠️ Job Seeker Sidebar: Profile check error, assuming complete:', profileErr);
+            this.isProfileComplete = true; // Assume complete if check fails
           }
         } else {
-          console.error("Unable to get user ID:", data.message);
+          console.error("❌ Job Seeker Sidebar: No user ID in response:", data);
         }
       } catch (err) {
-        console.error("Error retrieving user info or checking profile:", err);
+        console.error("❌ Job Seeker Sidebar: Error retrieving user info or checking profile:", err);
       }
     },
     async toggleAIDropdown() {
@@ -353,11 +395,26 @@ export default {
       this.toggleAIDropdown();
     },
     async loadChatHistory() {
-      if (!this.userId || this.loadingHistory) return;
+      if (!this.userId) {
+        console.warn('⚠️ Job Seeker Sidebar: Cannot load history - no user ID');
+        return;
+      }
+      
+      // Prevent concurrent requests but allow queued requests
+      if (this.loadingHistory) {
+        console.log('📋 Job Seeker Sidebar: Already loading, skipping duplicate request');
+        return;
+      }
       
       this.loadingHistory = true;
       try {
         const token = localStorage.getItem("employeeToken");
+        if (!token) {
+          console.warn('⚠️ Job Seeker Sidebar: No token available');
+          this.loadingHistory = false;
+          return;
+        }
+        
         const url = `${this.apiBase}/chat/sessions?users_id=${this.userId}`;
         console.log('📋 Job Seeker Sidebar: Loading chat history from:', url);
         
@@ -376,7 +433,7 @@ export default {
           
           if (data.sessions && Array.isArray(data.sessions)) {
             console.log(`✅ Job Seeker Sidebar: Found ${data.sessions.length} chat sessions`);
-            this.chatHistory = data.sessions.map(session => ({
+            const mappedSessions = data.sessions.map(session => ({
               sessionId: String(session.id),
               title: session.title || 'New Chat',
               createdAt: session.created_at || session.createdAt,
@@ -386,6 +443,9 @@ export default {
               const dateB = new Date(b.createdAt || 0);
               return dateB - dateA;
             });
+            
+            // Force reactivity by creating new array reference
+            this.chatHistory = [...mappedSessions];
             console.log('✅ Job Seeker Sidebar: Loaded chat history:', this.chatHistory.length, 'sessions');
           } else {
             console.warn('⚠️ Job Seeker Sidebar: No sessions array in response:', data);
@@ -398,6 +458,7 @@ export default {
         }
       } catch (err) {
         console.error("Error loading chat history:", err);
+        this.chatHistory = [];
       } finally {
         this.loadingHistory = false;
       }
@@ -469,12 +530,25 @@ export default {
     async handleChatHistoryUpdate() {
       // Reload chat history when a new message is sent (even if dropdown is closed)
       console.log('📢 Job Seeker Sidebar: Chat history updated event received');
+      console.log('📢 Job Seeker Sidebar: Current userId:', this.userId);
+      console.log('📢 Job Seeker Sidebar: Current loadingHistory:', this.loadingHistory);
+      
       if (this.userId) {
         console.log('📢 Job Seeker Sidebar: Reloading history due to update event');
-        await this.loadChatHistory();
+        // Add a small delay to ensure backend has processed the new session
+        setTimeout(async () => {
+          await this.loadChatHistory();
+          console.log('✅ Job Seeker Sidebar: History reload completed. Sessions:', this.chatHistory.length);
+        }, 300);
       } else {
         console.warn('⚠️ Job Seeker Sidebar: Cannot reload history - no user ID');
         await this.getUserIdAndCheckProfile();
+        if (this.userId) {
+          setTimeout(async () => {
+            await this.loadChatHistory();
+            console.log('✅ Job Seeker Sidebar: History reload completed after getting userId. Sessions:', this.chatHistory.length);
+          }, 300);
+        }
       }
     }
   }

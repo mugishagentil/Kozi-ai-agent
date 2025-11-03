@@ -40,7 +40,10 @@
                 <div class="history-header">
                   <span>HISTORY</span>
                 </div>
-                <div v-if="chatHistory.length > 0" class="chat-history-list">
+                <div v-if="loadingHistory" class="empty-history">
+                  <p>Loading chats...</p>
+                </div>
+                <div v-else-if="chatHistory.length > 0" class="chat-history-list">
                   <div
                     v-for="(chat, index) in chatHistory"
                     :key="chat.sessionId || index"
@@ -98,7 +101,7 @@
 
 <script>
 import { useRoute, useRouter } from 'vue-router';
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 
 export default {
   props: {
@@ -331,12 +334,43 @@ export default {
       { immediate: true }
     );
 
+    const handleChatHistoryUpdate = async () => {
+      // Reload chat history when a new message is sent
+      console.log('📢 Agent Sidebar: Chat history updated event received');
+      console.log('📢 Agent Sidebar: Current userId:', userId.value);
+      console.log('📢 Agent Sidebar: Current loadingHistory:', loadingHistory.value);
+      if (userId.value) {
+        console.log('📢 Agent Sidebar: Reloading history due to update event');
+        // Add a small delay to ensure backend has processed the new session
+        setTimeout(async () => {
+          await loadChatHistory();
+          console.log('✅ Agent Sidebar: History reload completed. Sessions:', chatHistory.value.length);
+        }, 300);
+      } else {
+        console.warn('⚠️ Agent Sidebar: Cannot reload history - no user ID');
+        await getUserId();
+        if (userId.value) {
+          setTimeout(async () => {
+            await loadChatHistory();
+            console.log('✅ Agent Sidebar: History reload completed after getting userId. Sessions:', chatHistory.value.length);
+          }, 300);
+        }
+      }
+    };
+
     onMounted(() => {
+      console.log('🟢 Agent Sidebar mounted, initializing...');
       getUserId();
       // Set currentSessionId from route query
       if (route.query.sessionId) {
         currentSessionId.value = String(route.query.sessionId);
       }
+      // Listen for chat history updates
+      window.addEventListener('chatHistoryUpdated', handleChatHistoryUpdate);
+    });
+
+    onUnmounted(() => {
+      window.removeEventListener('chatHistoryUpdated', handleChatHistoryUpdate);
     });
 
     return {

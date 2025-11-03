@@ -1492,5 +1492,73 @@ body.dark .user-message .message-avatar {
   line-height: 1.6;   /* makes it more readable */
 }
 
+/* ============================================
+   CRITICAL MOBILE FIX: Override inline styles
+   for admin and employer dashboards
+   ============================================ */
+@media (max-width: 768px) {
+  /* Force body-wrapper to have no left margin on mobile - override ALL inline styles */
+  .body-wrapper[style*="margin-left"],
+  .body-wrapper[style*="margin-left: 270px"],
+  .body-wrapper[style*="margin-left:270px"],
+  div[style*="margin-left: 270px"],
+  div[style*="margin-left:270px"] {
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    overflow-x: hidden !important;
+  }
+  
+  /* Ensure page-wrapper doesn't overflow */
+  .page-wrapper,
+  #main-wrapper {
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+  
+  /* Prevent horizontal scroll on body and html */
+  body {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+  }
+  
+  html {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+  }
+  
+  /* Fix for admin sidebar - ensure it's properly hidden when collapsed */
+  .left-sidebar.sidebar-collapsed {
+    transform: translateX(-100%) !important;
+    display: none !important;
+  }
+  
+  /* Fix for employer sidebar */
+  .sidebar:not(.visible) {
+    transform: translateX(-100%) !important;
+  }
+  
+  /* Ensure container-fluid doesn't overflow */
+  .container-fluid {
+    max-width: 100vw !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    overflow-x: hidden !important;
+  }
+  
+  /* Fix for any card-body with inline styles */
+  .card-body[style*="margin-left: 270px"],
+  .card-body[style*="margin-left:270px"] {
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+}
+
 
 

@@ -1,5 +1,11 @@
 <template>
   <div id="main-wrapper">
+    <!-- Mobile overlay for sidebar -->
+    <div 
+      v-if="isMobile && sidebarVisible" 
+      class="sidebar-overlay"
+      @click="sidebarVisible = false"
+    ></div>
     <SidebarComponent
       :visible="sidebarVisible"
       @close-sidebar="sidebarVisible = false"
@@ -73,21 +79,51 @@ export default {
   }
 }
 
+/* Mobile overlay */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 9998;
+  display: none;
+}
+
 @media (max-width: 768px) {
+  .sidebar-overlay {
+    display: block;
+  }
+  
+  #main-wrapper {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+  
   .body-wrapper {
-    margin-left: 0;
-    width: 100%;
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    overflow-x: hidden !important;
   }
   
   /* Ensure header has no padding/margin on mobile */
   .body-wrapper :deep(.app-header) {
-    margin: 0;
-    padding: 0;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
   }
   
   .body-wrapper :deep(.navbar) {
     padding-left: 0.5rem !important;
     padding-right: 0.5rem !important;
+    width: 100% !important;
+    max-width: 100vw !important;
   }
 }
 </style>

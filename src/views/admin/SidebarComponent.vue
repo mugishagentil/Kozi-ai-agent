@@ -9,7 +9,7 @@
           <a href="/admin" class="text-nowrap logo-img">
             <img :src="require('@/assets/img/logo.png')" alt="Logo" style="width:10rem">
           </a>
-          <div class="close-btn d-xl-none d-block sidebartoggler cursor-pointer" @click="toggleSidebar" aria-label="Toggle sidebar">
+          <div class="close-btn d-xl-none d-block sidebartoggler cursor-pointer" @click="$emit('toggle-sidebar')" aria-label="Toggle sidebar">
             <i class="ti ti-x fs-8"></i>
           </div>
         </div>
@@ -140,9 +140,15 @@ export default {
   components: {
     DeleteChatModal
   },
+  props: {
+    sidebarVisible: {
+      type: Boolean,
+      default: true
+    }
+  },
+  emits: ['toggle-sidebar', 'close-sidebar'],
   data() {
     return {
-      sidebarVisible: true,
       openDropdown: null,
       isMobile: false,
       aiDropdownOpen: false,
@@ -332,7 +338,7 @@ export default {
   },
   methods: {
     toggleSidebar() {
-      this.sidebarVisible = !this.sidebarVisible;
+      this.$emit('toggle-sidebar');
     },
     
     // Check if current route matches any of the matchPrefix routes
@@ -393,7 +399,12 @@ export default {
     },
     checkIfMobile() {
       this.isMobile = window.innerWidth <= 768;
-      this.sidebarVisible = !this.isMobile;
+      // Emit event to parent to update sidebar state
+      if (!this.isMobile) {
+        this.$emit('toggle-sidebar');
+      } else {
+        this.$emit('close-sidebar');
+      }
     },
     async getUserId() {
       try {
@@ -696,16 +707,41 @@ export default {
 }
 
 @media (max-width: 768px) {
+  /* Fix sidebar positioning on mobile */
   .left-sidebar {
-    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: min(85vw, 320px) !important;
+    height: 100vh !important;
+    z-index: 9999 !important;
+    transform: translateX(-100%) !important;
+    transition: transform 0.3s ease !important;
+    display: block !important;
+    background: #fff !important;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1) !important;
   }
 
+  /* When sidebar is visible (not collapsed) */
+  .left-sidebar:not(.sidebar-collapsed) {
+    transform: translateX(0) !important;
+  }
+  
+  /* When sidebar is collapsed, hide it completely */
   .left-sidebar.sidebar-collapsed {
-    display: block;
+    transform: translateX(-100%) !important;
   }
 
+  /* Overlay is now handled by IndexComponent */
+
+  /* Force body-wrapper to have no margin on mobile - override inline styles */
   .body-wrapper {
-    margin-left: 0;
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    overflow-x: hidden !important;
   }
 
   .close-btn {
@@ -722,6 +758,13 @@ export default {
     color: white;
     padding: 10px;
     border-radius: 5px;
+  }
+  
+  /* Prevent page wrapper from overflowing */
+  .page-wrapper {
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
   }
 }
 

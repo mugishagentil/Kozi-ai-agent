@@ -767,17 +767,39 @@ export default {
 
 @media (max-width: 768px) {
   .sidebar {
-    width: 100%;
-    max-width: 300px;
+    width: min(85vw, 320px) !important;
+    max-width: 320px !important;
     transform: translateX(-100%) !important;
+    position: fixed !important;
+    z-index: 9999 !important;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1) !important;
   }
   
   .sidebar.visible {
     transform: translateX(0) !important;
   }
   
+  /* Overlay is now handled by IndexComponent */
+  
   .close-btn {
     display: flex;
+  }
+  
+  /* Force body-wrapper to have no margin on mobile - override inline styles */
+  .body-wrapper {
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    overflow-x: hidden !important;
+  }
+  
+  /* Prevent page wrapper from overflowing */
+  .page-wrapper {
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
   }
 }
 

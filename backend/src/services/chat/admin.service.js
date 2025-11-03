@@ -20,11 +20,13 @@ const {
 } = require('../adminDb.service');
 const templates = require('../../utils/responseTemplates');
 const { GmailAgentService } = require('../gmail.service');
+const { EmailService } = require('../email.service');
 const { fetchKoziWebsiteContext } = require('../../utils/fetchKoziWebsite');
 const { getCachedWebsiteContext, setCachedWebsiteContext } = require('../../utils/websiteCache');
 
 const MAX_WEBSITE_CONTEXT_CHARS = 500000;
 const gmailAgent = new GmailAgentService();
+const emailService = new EmailService();
 
 // ============ SIMPLE ADMIN RESPONSES ============
 async function getAdminResponse(message) {
@@ -196,26 +198,91 @@ async function handlePayments(userMsg) {
   }
 }
 
-// ============ GMAIL HANDLER ============
-async function handleGmail(userMsg) {
+// ============ EMAIL HANDLER ============
+async function handleEmail(userMsg) {
   try {
-    const res = await gmailAgent.invoke(userMsg);
+    const lowerMsg = userMsg.toLowerCase();
     
-    // Check if it's a successful response
-    if (res && res.success && res.output) {
-      return res.output;
+    // Regex to detect email addresses
+    const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+    const hasEmailAddress = emailPattern.test(userMsg);
+    
+    // Check if user wants to send email (not just read Gmail)
+    const isSendRequest = lowerMsg.includes('send email') || 
+                         lowerMsg.includes('sent email') ||
+                         lowerMsg.includes('send an email') ||
+                         lowerMsg.includes('email to') ||
+                         lowerMsg.includes('tell him') ||
+                         lowerMsg.includes('tell her') ||
+                         lowerMsg.includes('inform') ||
+                         lowerMsg.includes('notify') ||
+                         (hasEmailAddress && (lowerMsg.includes('email') || lowerMsg.includes('send') || lowerMsg.includes('sent'))) ||
+                         // If message contains only an email address or email + message, treat as send request
+                         (hasEmailAddress && userMsg.trim().split(/\s+/).length <= 10);
+    
+    if (isSendRequest || (hasEmailAddress && !lowerMsg.includes('gmail') && !lowerMsg.includes('inbox') && !lowerMsg.includes('read'))) {
+      // Use email service for sending emails
+      console.log('[EMAIL] Detected send email request');
+      const result = await emailService.handleEmailRequest(userMsg);
+      return result.output || JSON.stringify(result);
+    } else {
+      // Use existing Gmail service for reading/management
+      console.log('[EMAIL] Using Gmail service for read/management');
+      
+      // Check if Gmail service is initialized
+      if (!gmailAgent || !gmailAgent.oauth2Client) {
+        return `❌ **Gmail Service Not Available**
+
+Gmail API is not configured. To manage Gmail:
+1. Set up Gmail API credentials
+2. Or use email sending instead: "Send email to user@example.com about [topic]"
+
+For sending emails, just say: "Send email to user@example.com about [message]"`;
+      }
+      
+      try {
+        const res = await gmailAgent.invoke(userMsg);
+        
+        // Check if it's a successful response
+        if (res && res.success && res.output) {
+          return res.output;
+        }
+        
+        // Handle different response formats
+        if (typeof res?.output === 'string') return res.output;
+        if (typeof res === 'string') return res;
+        
+        // If we got here, something unexpected happened
+        return JSON.stringify(res, null, 2);
+      } catch (gmailError) {
+        // If Gmail service fails and we have an email address, suggest using email service
+        if (hasEmailAddress) {
+          return `❌ **Gmail Service Error**
+
+${gmailError.message}
+
+**Alternative:** To send an email, use:
+"Send email to ${userMsg.match(emailPattern)?.[0] || 'user@example.com'} about [your message]"
+
+Would you like to send an email instead?`;
+        }
+        throw gmailError;
+      }
     }
-    
-    // Handle different response formats
-    if (typeof res?.output === 'string') return res.output;
-    if (typeof res === 'string') return res;
-    
-    // If we got here, something unexpected happened
-    return JSON.stringify(res, null, 2);
   } catch (err) {
-    console.error('[GMAIL] Error:', err);
-    return getFriendlyErrorMessage('gmail', err.message);
+    console.error('[EMAIL] Error:', err);
+    return `❌ **Email Error**
+
+${err.message}
+
+Please check your email configuration or try again.`;
   }
+}
+
+// ============ GMAIL HANDLER (Legacy - kept for backward compatibility) ============
+async function handleGmail(userMsg) {
+  // Redirect to handleEmail for consistency
+  return handleEmail(userMsg);
 }
 
 // ============ DATABASE HANDLER ============
@@ -1087,8 +1154,8 @@ async function chat(req, res) {
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     } else if (intent === 'EMAIL') {
-      // Handle Gmail queries with real data
-      const emailResponse = await handleGmail(text);
+      // Handle email queries (send or manage Gmail)
+      const emailResponse = await handleEmail(text);
       await streamText(res, emailResponse);
       await saveAssistantMessage(session.id, emailResponse);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

@@ -34,22 +34,38 @@ Message: "${message}"`;
 
 async function analyzeIntent(message) {
   try {
+    const lowerMsg = message.toLowerCase();
+    
+    // Quick check for explicit send email commands (fast path)
+    const isExplicitSendEmail = lowerMsg.includes('send email') || 
+                                lowerMsg.includes('send an email') ||
+                                (lowerMsg.includes('email') && lowerMsg.includes('@') && lowerMsg.includes('to'));
+    
     const prompt = `Analyze this admin query and determine the primary intent:
 
 "${message}"
 
 Categories:
 - PAYMENT: salary, payments, payroll, mark as paid, payment reports, check payments, due dates
-- EMAIL: send email, draft email, gmail, inbox, email summary, summarize emails, reply to emails
+- EMAIL: send email, send an email, email to [address], draft email, gmail, inbox, email summary, summarize emails, reply to emails${isExplicitSendEmail ? ' (CRITICAL: This message contains "send email" or email address - prioritize EMAIL)' : ''}
 - DATABASE: filter jobseekers/employers/jobs, search by location/skills, count registrations, how many, workers, recent signups
 - GENERAL: greetings, help requests, general questions, other
 
 Important: "worker" and "workers" are synonyms for "job seeker"
+${isExplicitSendEmail ? '\nCRITICAL: This message contains "send email" command or email address - MUST return EMAIL.' : ''}
 
 Respond with ONLY ONE WORD: PAYMENT, EMAIL, DATABASE, or GENERAL`;
 
     const intent = await generateText(prompt, { temperature: 0, maxTokens: 10 });
-    return intent.trim().toUpperCase();
+    const detectedIntent = intent.trim().toUpperCase();
+    
+    // Override to EMAIL if explicit send email command detected
+    if (isExplicitSendEmail && detectedIntent !== 'EMAIL') {
+      console.log('[Intent] Overriding intent to EMAIL for explicit send email command');
+      return 'EMAIL';
+    }
+    
+    return detectedIntent;
   } catch (error) {
     console.error('[LLM] Analyze intent error:', error);
     return 'GENERAL';

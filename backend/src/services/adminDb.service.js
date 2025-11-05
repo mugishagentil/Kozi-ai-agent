@@ -744,6 +744,127 @@ async function fetchIncompleteProfiles(apiToken = null) {
   }
 }
 
+// ============ FETCH DASHBOARD STATISTICS ============
+async function fetchDashboardStatistics(apiToken = null) {
+  try {
+    const token = apiToken || process.env.API_TOKEN || '';
+    const apiBase = 'https://apis.kozi.rw';
+    
+    console.log('[DASHBOARD_STATS] Fetching all statistics from API...');
+    
+    // Fetch all statistics in parallel
+    const statsPromises = [
+      fetch(`${apiBase}/providers/counts`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'jobProviders', value: d.count || 0 })).catch(() => ({ key: 'jobProviders', value: 0 })),
+      
+      fetch(`${apiBase}/seekers/count`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'jobSeekers', value: d.count || 0 })).catch(() => ({ key: 'jobSeekers', value: 0 })),
+      
+      fetch(`${apiBase}/admin/count/approved_seekers`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'approvedSeekers', value: d.count || 0 })).catch(() => ({ key: 'approvedSeekers', value: 0 })),
+      
+      fetch(`${apiBase}/admin/count/approved_providers`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'approvedProviders', value: d.count || 0 })).catch(() => ({ key: 'approvedProviders', value: 0 })),
+      
+      fetch(`${apiBase}/admin/count/agent`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'agents', value: d.count || 0 })).catch(() => ({ key: 'agents', value: 0 })),
+      
+      fetch(`${apiBase}/admin/count/jobs`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'allJobs', value: d.count || 0 })).catch(() => ({ key: 'allJobs', value: 0 })),
+      
+      fetch(`${apiBase}/admin/count/unpublishedjob`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'unpublishedJobs', value: d.count || 0 })).catch(() => ({ key: 'unpublishedJobs', value: 0 })),
+      
+      fetch(`${apiBase}/admin/count/active_jobs`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'activeJobs', value: d.count || 0 })).catch(() => ({ key: 'activeJobs', value: 0 })),
+      
+      fetch(`${apiBase}/admin/count/todays_job_providers`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'todayProviderRegistrations', value: d.count || 0 })).catch(() => ({ key: 'todayProviderRegistrations', value: 0 })),
+      
+      fetch(`${apiBase}/admin/count/todays_job_seekers`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'todayRegistrations', value: d.count || 0 })).catch(() => ({ key: 'todayRegistrations', value: 0 })),
+      
+      fetch(`${apiBase}/admin/count/job_posted_this_week`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'jobsPostedThisWeek', value: d.count || 0 })).catch(() => ({ key: 'jobsPostedThisWeek', value: 0 })),
+      
+      fetch(`${apiBase}/employees/count`, {
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+      }).then(r => r.ok ? r.json() : { count: 0 }).then(d => ({ key: 'hiredSeekers', value: d.count || 0 })).catch(() => ({ key: 'hiredSeekers', value: 0 })),
+    ];
+    
+    const results = await Promise.all(statsPromises);
+    
+    // Convert array to object
+    const statistics = results.reduce((acc, item) => {
+      acc[item.key] = item.value;
+      return acc;
+    }, {});
+    
+    console.log('[DASHBOARD_STATS] Successfully fetched statistics:', statistics);
+    
+    return {
+      success: true,
+      data: statistics,
+      count: Object.keys(statistics).length
+    };
+  } catch (error) {
+    console.error('[DASHBOARD_STATS] Error:', error);
+    return {
+      success: false,
+      error: error.message,
+      data: {},
+      count: 0
+    };
+  }
+}
+
 module.exports = {
   extractSqlFromText,
   queryWithNaturalLanguage,
@@ -755,5 +876,6 @@ module.exports = {
   fetchJobSeekersByCategory,
   fetchEmployerProfile,
   getUserIdByEmail,
-  fetchIncompleteProfiles
+  fetchIncompleteProfiles,
+  fetchDashboardStatistics
 };

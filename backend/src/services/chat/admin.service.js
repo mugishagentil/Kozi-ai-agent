@@ -16,7 +16,8 @@ const {
   fetchJobSeekersByCategory,
   fetchEmployerProfile,
   getUserIdByEmail,
-  fetchIncompleteProfiles
+  fetchIncompleteProfiles,
+  fetchDashboardStatistics
 } = require('../adminDb.service');
 const templates = require('../../utils/responseTemplates');
 const { GmailAgentService } = require('../gmail.service');
@@ -148,6 +149,65 @@ function getFriendlyErrorMessage(context, error) {
   };
   
   return messages[context] || `I encountered an unexpected error: ${error}\n\n✅ **Suggested Action:** Please try again or contact support if the issue persists.`;
+}
+
+// ============ PLATFORM STATISTICS HANDLER ============
+async function handleStatistics(userMsg, apiToken = null) {
+  try {
+    const lowerMsg = userMsg.toLowerCase();
+    
+    // Check if user wants platform statistics
+    if (lowerMsg.includes('statistics') || 
+        lowerMsg.includes('insights') || 
+        lowerMsg.includes('dashboard') ||
+        lowerMsg.includes('platform insights') ||
+        lowerMsg.includes('show me platform') ||
+        lowerMsg.includes('platform stats') ||
+        (lowerMsg.includes('how many') && (lowerMsg.includes('provider') || lowerMsg.includes('seeker') || lowerMsg.includes('job') || lowerMsg.includes('agent')))) {
+      
+      const result = await fetchDashboardStatistics(apiToken);
+      
+      if (!result.success) {
+        return `❌ **Error Fetching Statistics**\n\n${result.error}\n\nPlease try again later.`;
+      }
+      
+      const stats = result.data;
+      
+      // Format the response similar to dashboard
+      let response = `📊 **Platform Insights and Statistics**\n\n`;
+      response += `Here are the key statistics about Kozi:\n\n`;
+      
+      response += `**User Statistics:**\n`;
+      response += `• All Job Providers: **${stats.jobProviders || 0}**\n`;
+      response += `• All Job Seekers: **${stats.jobSeekers || 0}**\n`;
+      response += `• Approved Seekers: **${stats.approvedSeekers || 0}**\n`;
+      response += `• Approved Providers: **${stats.approvedProviders || 0}**\n`;
+      response += `• Hired Seekers: **${stats.hiredSeekers || 0}**\n`;
+      response += `• All Agents: **${stats.agents || 0}**\n\n`;
+      
+      response += `**Job Statistics:**\n`;
+      response += `• All Jobs: **${stats.allJobs || 0}**\n`;
+      response += `• Active Jobs: **${stats.activeJobs || 0}**\n`;
+      response += `• Unpublished Jobs: **${stats.unpublishedJobs || 0}**\n`;
+      response += `• Jobs Posted This Week: **${stats.jobsPostedThisWeek || 0}**\n\n`;
+      
+      response += `**Today's Activity:**\n`;
+      response += `• Today's Provider Registrations: **${stats.todayProviderRegistrations || 0}**\n`;
+      response += `• Today's Job Seeker Registrations: **${stats.todayRegistrations || 0}**\n\n`;
+      
+      response += `✅ **Next Steps:** You can ask me to:\n`;
+      response += `• Show specific statistics (e.g., "How many job providers do we have?")\n`;
+      response += `• Filter data by location or category\n`;
+      response += `• View trends over time\n`;
+      
+      return response;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('[STATISTICS] Error:', error);
+    return `❌ **Error Processing Statistics Request**\n\n${error.message}`;
+  }
 }
 
 // ============ PAYMENT HANDLER ============
@@ -1141,6 +1201,16 @@ async function chat(req, res) {
     });
 
     setupSSEHeaders(res);
+
+    // Check for statistics request first
+    const statsResponse = await handleStatistics(text, apiToken);
+    if (statsResponse) {
+      await streamText(res, statsResponse);
+      await saveAssistantMessage(session.id, statsResponse);
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+      return;
+    }
 
     // Detect intent and route to appropriate service
     const intent = await analyzeIntent(text);

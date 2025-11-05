@@ -334,18 +334,27 @@ Return JSON only:
 Extract search filters for job search based on the conversation.
 FILTERS ARE OPTIONAL - if user doesn't specify any, that's fine!
 
-CRITICAL: If user mentions ANY job role, type, or category, extract it immediately:
+CRITICAL: DO NOT extract job role/category if user makes a GENERAL request:
+- "Show me available jobs" → NO role, NO categoryName (searchType: "general")
+- "Show me jobs" → NO role, NO categoryName (searchType: "general")  
+- "What jobs are available?" → NO role, NO categoryName (searchType: "general")
+- "Available jobs" → NO role, NO categoryName (searchType: "general")
+- "What jobs do you have?" → NO role, NO categoryName (searchType: "general")
+- "List jobs" → NO role, NO categoryName (searchType: "general")
+
+ONLY extract if user SPECIFICALLY mentions a job type:
 - "Sales Representative" → role: "Sales Representative", categoryName: "Salesperson"
 - "I need job of [X]" → role: [X], extract categoryName if possible
 - "Sales Rep", "Salesperson" → categoryName: "Salesperson"
-- ANY job title mentioned → extract as role
+- "Doctor jobs" → role: "Doctor"
+- "Show me driver jobs" → role: "Driver", categoryName: "Driver"
 
 SPECIAL HANDLING:
 - If user specifies a number like "show 10 jobs", set maxResults to that number
 - If user says "show all", set maxResults to 50
 - If user says "show remaining", set showRemaining to true
 - For categories, match to EXACT category names from the list below
-- If user says "I need job" or "find me job" → this is a general search request
+- If user says "I need job" or "find me job" WITHOUT specifying type → this is a general search request
 
 Available categories: ${categoriesList}
 
@@ -868,10 +877,29 @@ Generate ONLY the response message, no JSON:
         this.conversationContext.lastJobSeekerIntent = true;
       }
 
+      // CRITICAL FIX: Detect general "show me available jobs" queries FIRST (before extracting filters)
+      const isGeneralJobRequest = (
+        lowerMessage.includes('show me available jobs') ||
+        lowerMessage.includes('show me jobs') ||
+        lowerMessage === 'available jobs' ||
+        lowerMessage.includes('what jobs') ||
+        lowerMessage.includes('any jobs') ||
+        lowerMessage.includes('list jobs') ||
+        (lowerMessage.includes('jobs') && lowerMessage.includes('available'))
+      );
+      
       const filters = await this.extractFiltersFromQuery(userMessage, conversationHistory);
       
+      // If it's a general request, clear any incorrectly extracted filters
+      if (isGeneralJobRequest) {
+        filters.role = null;
+        filters.categoryName = null;
+        filters.categoryId = null;
+        filters.searchType = 'general';
+      }
+      
       // CRITICAL: If user says "I need a job", always search - don't ask more questions
-      if (wantsJob && !filters.categoryName && !filters.role) {
+      if (wantsJob && !filters.categoryName && !filters.role && !isGeneralJobRequest) {
         // They want a job but didn't specify type - show general jobs or ask ONE clarifying question
         filters.searchType = filters.searchType || 'general';
         // But be proactive - try to extract any job type mentioned
@@ -957,20 +985,87 @@ Generate ONLY the response message, no JSON:
       const showingCount = searchResult.showingCount;
       const remainingCount = searchResult.remainingCount;
 
-      if (showingCount === 0) {
+      // CRITICAL FIX: Handle general requests differently
+      if (isGeneralJobRequest && showingCount > 0) {
+        // If jobs found from general search, show them and ask what type they prefer
+        const message = await this.generateResponseMessage(filters, totalFound, showingCount, false, remainingCount);
+        const enhancedMessage = `Great! I found ${totalFound} job${totalFound > 1 ? 's' : ''} available on the platform. Here are some opportunities:\n\n${message}\n\nWhat type of work are you most interested in? I can help you find specific categories like Sales, Driver, Construction, Healthcare, IT, or any other field you prefer.`;
+        
+        return {
+          type: 'results',
+          data: jobs,
+          jobs,
+          message: enhancedMessage,
+          searchMode: 'jobs',
+          totalFound,
+          showing: showingCount,
+          hasMore: remainingCount > 0,
+          remaining: remainingCount,
+          currentOffset: this.currentOffset,
+        };
+      }
+      
+      if (isGeneralJobRequest && showingCount === 0) {
+        // If no jobs found at all from general search, ask what type they want
         this.hasActiveSearch = false;
-        
-        await this.loadCategories();
-        const suggestedCategories = this.categories.slice(0, 8).map(cat => cat.name).join(', ');
-        
-        const message = `I couldn't find any ${filters.categoryName || filters.role || ''} jobs${filters.location ? ` in ${filters.location}` : ''} right now. 😔\n\nYou might want to try:\n• Searching in different categories like: ${suggestedCategories}\n• Removing some filters to broaden your search\n• Checking back later for new opportunities\n\nWhat type of work are you most interested in?`;
+        const message = `I couldn't find any jobs in the database right now. 😔\n\nWhat type of work are you interested in? I can search for specific job categories like Sales, Driver, Construction, Healthcare, IT, or any other field you prefer.`;
         
         return { 
           type: 'no_results', 
           data: [], 
           jobs: [], 
           message,
-          suggestedCategories: this.categories.slice(0, 8)
+          suggestedCategories: []
+        };
+      }
+
+      if (showingCount === 0) {
+        this.hasActiveSearch = false;
+        
+        const searchedTerm = filters.categoryName || filters.role || '';
+        const locationText = filters.location ? ` in ${filters.location}` : '';
+        
+        // Generate a helpful message without suggesting random categories
+        // Use AI to suggest related alternatives if we have a specific search term
+        let suggestionText = '';
+        
+        if (searchedTerm) {
+          // Try to suggest related categories using AI
+          try {
+            const suggestionPrompt = `The user searched for "${searchedTerm}" jobs but found none. Suggest 3-4 related job categories or fields that might be similar or relevant. Be specific and relevant - don't suggest completely unrelated categories.
+
+Examples:
+- If they searched for "Doctor": suggest "Nurse, Healthcare Assistant, Medical Receptionist, Pharmacy Assistant"
+- If they searched for "Engineer": suggest "Technician, Technical Support, Data Analyst, IT Professional"
+- If they searched for "Teacher": suggest "Tutor, Teaching Assistant, Educational Coordinator, Librarian"
+
+Return ONLY a comma-separated list of 3-4 relevant job categories, nothing else.`;
+            
+            const suggestionResponse = await Promise.race([
+              this.llm.invoke(suggestionPrompt),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('LLM timeout')), 3000))
+            ]);
+            
+            const relatedCategories = this._extractTextFromLLMResponse(suggestionResponse).trim();
+            
+            // Only use if it looks like a reasonable list (has commas and isn't too long)
+            if (relatedCategories && relatedCategories.includes(',') && relatedCategories.length < 200) {
+              suggestionText = `\n• Exploring related fields: ${relatedCategories}`;
+            }
+          } catch (err) {
+            // If AI suggestion fails, continue without it
+            console.warn('[JobSeekerAgent] Failed to generate related category suggestions:', err.message);
+          }
+        }
+        
+        const message = `I couldn't find any ${searchedTerm || ''} jobs${locationText} right now. 😔\n\nYou might want to try:${suggestionText}\n• Removing location or other filters to broaden your search\n• Checking back later for new opportunities\n• Exploring different job categories in the "All jobs" section\n\nWhat type of work are you most interested in?`;
+        
+        return { 
+          type: 'no_results', 
+          data: [], 
+          jobs: [], 
+          message,
+          suggestedCategories: []
         };
       }
 

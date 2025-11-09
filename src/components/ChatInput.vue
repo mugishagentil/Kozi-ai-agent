@@ -1,21 +1,26 @@
 <template>
   <div class="chat-input-container">
-    <div class="chat-input">
-      <input
-        v-model="message"
-        type="text"
-        placeholder="Ask me anything about Kozi..."
-        :disabled="disabled"
-        @keypress="handleKeyPress"
-        ref="inputRef"
-      />
-      <button 
-        @click="handleSend"
-        :disabled="disabled || !canSend"
-        id="sendBtn"
-      >
-        <i class="fas fa-paper-plane"></i>
-      </button>
+    <div class="input-wrapper">
+      <div class="chat-input">
+        <input
+          v-model="message"
+          type="text"
+          placeholder="Ask me anything about Kozi..."
+          :disabled="disabled"
+          @keypress="handleKeyPress"
+          ref="inputRef"
+        />
+        <button 
+          @click="handleSend"
+          :disabled="disabled || !canSend"
+          id="sendBtn"
+        >
+          <i class="fas fa-paper-plane"></i>
+        </button>
+      </div>
+      <div class="powered-by">
+        Powered by Sanson Group
+      </div>
     </div>
   </div>
 </template>
@@ -87,6 +92,14 @@ const handleKeyPress = (event) => {
   justify-content: center;
 }
 
+.input-wrapper {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .chat-input {
   display: flex;
   gap: 0.5rem;
@@ -96,8 +109,17 @@ const handleKeyPress = (event) => {
   padding: 0.35rem 0.35rem 0.35rem 1rem;
   align-items: center;
   width: 100%;
-  max-width: 720px;
   box-shadow: 0 8px 28px rgba(0,0,0,.06);
+}
+
+.powered-by {
+  text-align: center;
+  font-size: 0.7rem;
+  color: #9ca3af;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  opacity: 0.8;
 }
 
 .chat-input input {
@@ -134,6 +156,7 @@ const handleKeyPress = (event) => {
 body.dark .chat-input { background: #0f1115; border-color: #2a2a2a; }
 body.dark .chat-input-container { background: linear-gradient(180deg, rgba(15,17,21,0) 0%, #0f1115 30%); }
 body.dark .chat-input input { color: #e5e7eb; }
+body.dark .powered-by { color: #6b7280; }
 
 /* Mobile responsiveness */
 @media (max-width: 768px) {
@@ -142,6 +165,9 @@ body.dark .chat-input input { color: #e5e7eb; }
     width: 100%;
     max-width: 100vw;
   }
+  .input-wrapper {
+    max-width: 100%;
+  }
   .chat-input { 
     max-width: 100%; 
     border-radius: 20px;
@@ -149,6 +175,9 @@ body.dark .chat-input input { color: #e5e7eb; }
   }
   .chat-input input { font-size: 1rem; padding: 0.85rem 0.2rem; }
   .chat-input button { width: 40px; height: 40px; }
+  .powered-by {
+    font-size: 0.65rem;
+  }
 }
 
 </style>

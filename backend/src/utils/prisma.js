@@ -48,11 +48,13 @@ async function connectPrisma(maxRetries = 5, retryDelay = 2000) {
       
       // Check error type
       const isConnectionError = 
+        error.code === 'P1001' || // Can't reach database server
         error.code === 'P1017' || // Server has closed the connection
         error.code === 'ECONNREFUSED' ||
         error.code === 'ETIMEDOUT' ||
         error.message?.includes('Server has closed the connection') ||
-        error.message?.includes('Connection closed');
+        error.message?.includes('Connection closed') ||
+        error.message?.includes('Can\'t reach database server');
       
       if (retries >= maxRetries) {
         console.error('❌ Failed to connect to database after', maxRetries, 'attempts');

@@ -3,7 +3,7 @@
     <div class="job-card-header">
       <div class="company-logo">
         <img 
-          :src="job.logo || defaultLogo" 
+          :src="logoUrl" 
           :alt="job.company + ' logo'"
           @error="onLogoError"
           class="logo-image"
@@ -74,7 +74,21 @@ export default {
   },
   data() {
     return {
-      defaultLogo: '/logo.png'
+      defaultLogo: '/logo.png',
+      uploadsUrl: 'https://apis.kozi.rw/uploads/logo/'
+    }
+  },
+  computed: {
+    logoUrl() {
+      if (this.job.logo) {
+        // If logo is already a full URL, use it directly
+        if (this.job.logo.startsWith('http')) {
+          return this.job.logo
+        }
+        // Otherwise, construct the URL from the uploads directory
+        return this.uploadsUrl + this.job.logo
+      }
+      return this.defaultLogo
     }
   },
   methods: {

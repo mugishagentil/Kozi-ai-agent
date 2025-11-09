@@ -1,9 +1,71 @@
 const { prisma } = require('../utils/chatUtils');
 
+// ============ EXTERNAL (KOZI API) UPCOMING PAYMENTS ============
+async function listUpcomingPaymentsFromAPI(apiToken = process.env.API_TOKEN) {
+  try {
+    const apiBase = process.env.JOBSEEKERS_API_BASE || 'https://apis.kozi.rw';
+    // NOTE: Update this endpoint to your actual hired job seeker payments endpoint
+    const url = `${apiBase}/admin/hired_seekers/upcoming_payments`;
+
+    const res = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiToken ? { 'Authorization': `Bearer ${apiToken}` } : {})
+      }
+    });
+
+    if (!res.ok) {
+      throw new Error(`Hired payments API failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+    const items = Array.isArray(data) ? data : (data.data || data.results || []);
+
+    const normalized = items.map((p, i) => ({
+      id: p.id || i + 1,
+      amount: Number(p.amount) || 0,
+      due_date: p.next_payment_date ? new Date(p.next_payment_date) : null,
+      status: p.status || 'pending',
+      employer: {
+        company_name: p.employer_name || p.employer?.company_name || 'Unknown Employer',
+        first_name: p.employer?.first_name || null,
+        last_name: p.employer?.last_name || null,
+        email: p.employer?.email || null
+      },
+      job_seeker: {
+        first_name: p.job_seeker_first_name || p.job_seeker?.first_name || '',
+        last_name: p.job_seeker_last_name || p.job_seeker?.last_name || '',
+        email: p.job_seeker?.email || null
+      }
+    }))
+    .filter(p => p.due_date && (p.due_date - new Date()) <= 7 * 24 * 60 * 60 * 1000)
+    .sort((a, b) => a.due_date - b.due_date);
+
+    return {
+      success: true,
+      data: normalized,
+      count: normalized.length
+    };
+  } catch (error) {
+    console.error('[PAYMENT] External hired payments error:', error);
+    return {
+      success: false,
+      error: error.message,
+      data: []
+    };
+  }
+}
+
 // ============ PAYMENT TRACKING ============
 async function listUpcomingPayments() {
   try {
-    // Get payments due in the next 7 days
+    // 1) Try external hired job seeker API first
+    const apiFirst = await listUpcomingPaymentsFromAPI();
+    if (apiFirst.success && apiFirst.data && apiFirst.data.length > 0) {
+      return apiFirst;
+    }
+
+    // 2) Fallback to local DB (payments table) - due in next 7 days
     const sevenDaysFromNow = new Date();
     sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
 
@@ -350,6 +412,7 @@ module.exports = {
   generatePaymentReport,
   createPayment,
   getPaymentsByEmployer,
-  getPaymentsByJobSeeker
+  getPaymentsByJobSeeker,
+  listUpcomingPaymentsFromAPI
 };
 

@@ -3,7 +3,7 @@
     <div class="candidate-card-header">
       <div class="candidate-photo">
         <img 
-          :src="candidate.image || defaultPhoto" 
+          :src="profileImageUrl" 
           :alt="candidate.first_name + ' ' + candidate.last_name"
           @error="onPhotoError"
           class="photo-image"
@@ -15,7 +15,6 @@
       <div class="candidate-info">
         <h3 class="candidate-name">
           {{ candidate.first_name }} {{ candidate.last_name }}
-          <span v-if="candidate.verification_badge" class="verified-icon">✓</span>
         </h3>
         <p class="candidate-category">{{ getCategoryName(candidate.categories_id) }}</p>
         <div class="professional-badge" v-if="candidate.verification_badge">
@@ -62,8 +61,8 @@
         @click.stop="contactCandidate"
         :disabled="!candidate.users_id"
       >
-        <i class="fas fa-phone"></i>
-        Contact
+        <i class="fas fa-briefcase"></i>
+        Hire Me
       </button>
     </div>
   </div>
@@ -82,6 +81,7 @@ export default {
   data() {
     return {
       defaultPhoto: '/logo.png',
+      uploadsUrl: 'https://apis.kozi.rw/uploads/profile/',
       categories: {
         // Add category mappings if needed
         1: 'Sales',
@@ -95,6 +95,19 @@ export default {
         9: 'IT',
         10: 'Education'
       }
+    }
+  },
+  computed: {
+    profileImageUrl() {
+      if (this.candidate.image) {
+        // If image already starts with http, use it as is
+        if (this.candidate.image.startsWith('http')) {
+          return this.candidate.image
+        }
+        // Otherwise, prepend the uploads URL
+        return this.uploadsUrl + this.candidate.image
+      }
+      return this.defaultPhoto
     }
   },
   methods: {
@@ -218,11 +231,6 @@ export default {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.verified-icon {
-  color: #10b981;
-  font-size: 0.9rem;
 }
 
 .candidate-category {

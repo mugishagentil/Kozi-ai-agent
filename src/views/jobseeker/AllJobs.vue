@@ -110,6 +110,7 @@ export default {
       uploadsUrl: globalVariable + '/uploads/logo/',
       advert_url: globalVariable + '/uploads/logo/',
       defaultImage: require("@/assets/img/logo.png"),
+      backendUrl: process.env.VUE_APP_BACKEND_URL || 'http://localhost:5050',
       currentPage: 1,
       jobsPerPage: 4,
       advertsPerPage: 3,
@@ -182,7 +183,8 @@ export default {
           this.messageType = "alert-danger";
           return;
         }
-        const response = await fetch(`${globalVariable}/admin/select_jobss`, {
+        // Use new backend proxy endpoint that includes logos
+        const response = await fetch(`${this.backendUrl}/api/jobs/list`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -193,6 +195,7 @@ export default {
           this.messageType = "alert-danger";
         } else {
           this.jobs = data;
+          console.log('Jobs loaded with logos:', this.jobs);
         }
       } catch (error) {
         console.error("Error fetching jobs:", error);

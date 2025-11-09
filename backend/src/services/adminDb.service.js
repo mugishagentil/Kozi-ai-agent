@@ -268,7 +268,9 @@ async function filterEntities({ entity, query, location, category, skill, timefr
             select: {
               company_name: true,
               first_name: true,
-              last_name: true
+              last_name: true,
+              logo: true,
+              image: true
             }
           },
           categories: {

@@ -417,10 +417,16 @@ Return JSON only:
       if (!extractedRole) {
         // Try to extract job role from common patterns
         const rolePatterns = [
-          /(?:need|want|looking for|find|search|job of|jobs? for)\s+(?:a\s+)?([A-Z][a-zA-Z\s]+?)(?:\s+job|\s+position|\s+work|$|\?|\.)/i,
-          /(?:is there|are there|show me|tell me|find|search).*?job.*?(?:of|for)\s+([A-Z][a-zA-Z\s]+?)(?:\s|$|\?|\.)/i,
+          // Pattern for "job of [Role]" or "jobs of [Role]"
+          /(?:job|jobs)\s+of\s+([A-Z][a-zA-Z\s]+?)(?:\s|$|\?|\.)/i,
+          // Pattern for "need/want/find [Role]"
+          /(?:need|want|looking for|find|search|job for|jobs? for)\s+(?:a\s+)?([A-Z][a-zA-Z\s]+?)(?:\s+job|\s+position|\s+work|$|\?|\.)/i,
+          // Pattern for "is there job of/for [Role]"
+          /(?:is there|are there|show me|tell me|find|search).*?(?:job|jobs).*?(?:of|for)\s+([A-Z][a-zA-Z\s]+?)(?:\s|$|\?|\.)/i,
+          // Pattern for compound job titles before "job/position/work"
           /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s+(?:job|position|work)/i,
-          /(Sales Representative|Driver|Teacher|Accountant|Construction Worker|Security Guard|Receptionist|Waiter|Waitress|Cashier|Housekeeper|IT Professional|Doctor|Marketing Executive|Data Entry Clerk)/i
+          // Direct match for known job titles (most specific, check first)
+          /(Pastry Chef|Sales Representative|Project Manager|Head Chef|Sous Chef|Executive Chef|Construction Worker|Security Guard|Front Desk Representative|Receptionist|Marketing Executive|Data Entry Clerk|IT Professional|Driver|Teacher|Accountant|Front Desk|Waiter|Waitress|Server|Chef|Cook|Baker|Cashier|Housekeeper|Doctor)/i
         ];
         
         for (const pattern of rolePatterns) {
@@ -522,8 +528,26 @@ Return JSON only:
       'construction': 'Construction Worker',
       'construction worker': 'Construction Worker',
       'cleaner': 'Housekeeper',
-      'chef': 'Waiter / Waitress',
-      'cook': 'Waiter / Waitress',
+      
+      // Chef and cooking-related roles
+      'chef': 'Chef',
+      'pastry chef': 'Chef',
+      'head chef': 'Chef',
+      'sous chef': 'Chef',
+      'executive chef': 'Chef',
+      'cook': 'Chef',
+      'baker': 'Chef',
+      'pastry': 'Chef',
+      'culinary': 'Chef',
+      'kitchen': 'Chef',
+      
+      // Food service roles
+      'waiter': 'Waiter / Waitress',
+      'waitress': 'Waiter / Waitress',
+      'server': 'Waiter / Waitress',
+      'food server': 'Waiter / Waitress',
+      'food service': 'Waiter / Waitress',
+      
       'housekeeper': 'Housekeeper',
       'driver': 'Driver',
       'teacher': 'Teacher',
@@ -533,9 +557,10 @@ Return JSON only:
       'developer': 'IT Professional',
       'security': 'Security Guard',
       'security guard': 'Security Guard',
-      'waiter': 'Waiter / Waitress',
-      'waitress': 'Waiter / Waitress',
       'receptionist': 'Receptionist',
+      'front desk': 'Receptionist',
+      'front desk representative': 'Receptionist',
+      'office assistant': 'Receptionist',
       'cashier': 'Cashier',
       'data entry': 'Data Entry Clerk',
       'marketing': 'Marketing Executive',
@@ -746,11 +771,18 @@ Generate ONLY the response message, no JSON:
         const jobCategoryName = (job.category_name || job.job_category || '').toLowerCase();
         const targetCategoryName = (filters.categoryName || '').toLowerCase();
         
+        // Check category match
+        let categoryMatch = false;
         if (filters.categoryId && jobCategoryId && jobCategoryId.toString() === filters.categoryId.toString()) {
+          categoryMatch = true;
         } 
         else if (targetCategoryName && jobCategoryName.includes(targetCategoryName)) {
+          categoryMatch = true;
         }
-        else if (filters.categoryId || filters.categoryName) {
+        
+        // If category doesn't match but we have a specific role filter, 
+        // allow the role filter to determine if this job is relevant
+        if (!categoryMatch && !filters.role) {
           return false;
         }
       }
@@ -806,15 +838,17 @@ Generate ONLY the response message, no JSON:
       'sales': ['sales', 'seller', 'salesperson', 'sales representative', 'sales executive', 'sales agent', 'business development'],
       'construction': ['construction', 'builder', 'building', 'mason', 'carpenter', 'construction worker', 'laborer'],
       'cleaner': ['cleaner', 'cleaning', 'housekeeping', 'janitor', 'maid', 'sanitation', 'custodian'],
-      'chef': ['chef', 'cook', 'kitchen', 'culinary', 'food preparation', 'sous chef', 'head chef'],
+      'chef': ['chef', 'cook', 'kitchen', 'culinary', 'food preparation', 'sous chef', 'head chef', 'pastry chef', 'pastry', 'baker', 'executive chef', 'cooking', 'cuisine'],
       'housekeeper': ['housekeeper', 'housekeeping', 'domestic', 'maid', 'cleaner', 'home helper'],
       'driver': ['driver', 'driving', 'chauffeur', 'delivery driver', 'truck driver', 'transport'],
       'teacher': ['teacher', 'teaching', 'educator', 'tutor', 'instructor', 'lecturer'],
       'accountant': ['accountant', 'accounting', 'bookkeeper', 'finance', 'auditor'],
       'it': ['it', 'information technology', 'software', 'developer', 'programmer', 'technical support'],
       'security': ['security', 'guard', 'protection', 'watchman', 'safety'],
-      'waiter': ['waiter', 'waitress', 'server', 'food service', 'restaurant'],
-      'receptionist': ['receptionist', 'front desk', 'administrative assistant', 'office assistant'],
+      'waiter': ['waiter', 'waitress', 'server', 'food service', 'restaurant', 'food server', 'dining'],
+      'receptionist': ['receptionist', 'front desk', 'front desk representative', 'administrative assistant', 'office assistant', 'secretary'],
+      'front desk': ['receptionist', 'front desk', 'front desk representative', 'administrative assistant', 'office assistant', 'secretary'],
+      'front desk representative': ['receptionist', 'front desk', 'front desk representative', 'administrative assistant', 'office assistant', 'secretary'],
       'marketing': ['marketing', 'brand', 'advertising', 'promotion', 'digital marketing'],
       'nurse': ['nurse', 'nursing', 'medical', 'healthcare', 'patient care'],
       'doctor': ['doctor', 'physician', 'medical', 'healthcare', 'clinic']
@@ -887,7 +921,7 @@ Generate ONLY the response message, no JSON:
         lowerMessage.includes('list jobs') ||
         (lowerMessage.includes('jobs') && lowerMessage.includes('available'))
       );
-      
+
       const filters = await this.extractFiltersFromQuery(userMessage, conversationHistory);
       
       // If it's a general request, clear any incorrectly extracted filters
@@ -1086,20 +1120,29 @@ Return ONLY a comma-separated list of 3-4 relevant job categories, nothing else.
       };
     } catch (err) {
       console.error('[JobSeekerAgent] processMessage error:', err);
+      console.error('[JobSeekerAgent] Error stack:', err.stack);
+      console.error('[JobSeekerAgent] Error details:', {
+        message: err.message,
+        code: err.code,
+        name: err.name
+      });
       this.hasActiveSearch = false;
       
       if (err instanceof APIError) {
+        console.error('[JobSeekerAgent] APIError occurred:', err.message);
         return {
           type: 'error',
-          message: 'We encountered an issue while searching for jobs. Please try again in a moment.',
-          code: err.code
+          message: `We encountered an issue while searching for jobs. Please try again in a moment.`,
+          code: err.code,
+          details: err.message
         };
       }
       
       return {
         type: 'error',
         message: 'Sorry, we encountered an unexpected issue. Please try again.',
-        code: 'SEARCH_ERROR'
+        code: 'SEARCH_ERROR',
+        details: err.message
       };
     }
   }

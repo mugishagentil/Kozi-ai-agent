@@ -71,6 +71,36 @@
               <span class="typing-dot"></span>
               <span class="typing-dot"></span>
             </div>
+
+            <!-- Action Buttons (Copy, Like, Dislike) - Show at the bottom after all content -->
+            <div 
+              v-if="!message.streaming && message.text" 
+              class="message-actions"
+            >
+              <button 
+                class="action-btn" 
+                @click="copyMessage(message.text, index)"
+                :title="copiedIndex === index ? 'Copied!' : 'Copy'"
+              >
+                <i :class="copiedIndex === index ? 'fas fa-check' : 'far fa-copy'"></i>
+              </button>
+              <button 
+                class="action-btn" 
+                @click="likeMessage(message, index)"
+                :class="{ 'active': message.liked }"
+                title="Like"
+              >
+                <i :class="message.liked ? 'fas fa-thumbs-up' : 'far fa-thumbs-up'"></i>
+              </button>
+              <button 
+                class="action-btn" 
+                @click="dislikeMessage(message, index)"
+                :class="{ 'active': message.disliked }"
+                title="Dislike"
+              >
+                <i :class="message.disliked ? 'fas fa-thumbs-down' : 'far fa-thumbs-down'"></i>
+              </button>
+            </div>
           </div>
         </template>
         
@@ -142,12 +172,45 @@ onUnmounted(() => {
   }
 })
 
+// Track previous state to detect when jobs/candidates are added
+const previousJobsCount = ref(0)
+const previousCandidatesCount = ref(0)
+
 watch(
   () => props.messages,
-  async () => {
+  async (newMessages) => {
     await nextTick()
     if (chatContainer.value) {
-      chatContainer.value.scrollTop = chatContainer.value.scrollHeight
+      // Check if the last message has jobs or candidates
+      const lastMessage = newMessages[newMessages.length - 1]
+      const currentJobsCount = lastMessage?.jobs?.length || 0
+      const currentCandidatesCount = lastMessage?.candidates?.length || 0
+      
+      // Detect if jobs or candidates were just added (went from 0 to something, or increased)
+      const jobsJustAdded = currentJobsCount > 0 && currentJobsCount > previousJobsCount.value
+      const candidatesJustAdded = currentCandidatesCount > 0 && currentCandidatesCount > previousCandidatesCount.value
+      
+      // Update tracked counts
+      previousJobsCount.value = currentJobsCount
+      previousCandidatesCount.value = currentCandidatesCount
+      
+      // If jobs or candidates were just added, scroll to show the TOP of the message containing them
+      if (jobsJustAdded || candidatesJustAdded) {
+        // Wait a bit longer for cards to fully render
+        await nextTick()
+        setTimeout(() => {
+          const messageElements = chatContainer.value?.querySelectorAll('.message')
+          const lastMessageElement = messageElements?.[messageElements.length - 1]
+          
+          if (lastMessageElement) {
+            // Scroll to show the top of the message (where text and first cards are)
+            lastMessageElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        }, 100) // Small delay to ensure cards are rendered
+      } else if (!lastMessage?.jobs && !lastMessage?.candidates) {
+        // Normal behavior: scroll to bottom for regular text messages only
+        chatContainer.value.scrollTop = chatContainer.value.scrollHeight
+      }
     }
   },
   { deep: true }
@@ -260,13 +323,66 @@ const handleSuggestionClick = (message) => {
   emit('suggestion-click', message)
 }
 
+// Track copied message
+const copiedIndex = ref(null)
+
+// Copy message to clipboard
+const copyMessage = async (text, index) => {
+  try {
+    // Strip HTML tags for plain text copy
+    const tempDiv = document.createElement('div')
+    tempDiv.innerHTML = text
+    const plainText = tempDiv.textContent || tempDiv.innerText || ''
+    
+    await navigator.clipboard.writeText(plainText)
+    copiedIndex.value = index
+    
+    // Reset after 2 seconds
+    setTimeout(() => {
+      copiedIndex.value = null
+    }, 2000)
+  } catch (err) {
+    console.error('Failed to copy:', err)
+  }
+}
+
+// Like message
+const likeMessage = (message, index) => {
+  if (message.liked) {
+    message.liked = false
+  } else {
+    message.liked = true
+    message.disliked = false // Remove dislike if exists
+  }
+  
+  // Optional: Send feedback to backend
+  console.log('Message liked:', index)
+}
+
+// Dislike message
+const dislikeMessage = (message, index) => {
+  if (message.disliked) {
+    message.disliked = false
+  } else {
+    message.disliked = true
+    message.liked = false // Remove like if exists
+  }
+  
+  // Optional: Send feedback to backend
+  console.log('Message disliked:', index)
+}
+
     return {
       chatContainer,
       isDarkMode,
       showWelcomeScreen,
       welcomeMessage,
       suggestionCards,
-      handleSuggestionClick
+      handleSuggestionClick,
+      copiedIndex,
+      copyMessage,
+      likeMessage,
+      dislikeMessage
     }
   }
 }
@@ -602,6 +718,77 @@ body.dark .ai-text { color: #EA60A6; }
     width: 3px;
     height: 3px;
   }
+  
+  /* Mobile message actions */
+  .message-actions {
+    opacity: 1;
+    gap: 0.4rem;
+  }
+  
+  .action-btn {
+    font-size: 0.8rem;
+    padding: 0.3rem 0.45rem;
+  }
+}
+
+/* Message Action Buttons */
+.message-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.bot-message:hover .message-actions {
+  opacity: 1;
+}
+
+.action-btn {
+  background: transparent;
+  border: none;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  color: #9ca3af;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-btn:hover {
+  background: #f3f4f6;
+  color: #6b7280;
+  transform: translateY(-1px);
+}
+
+.action-btn.active {
+  color: #EA60A6;
+}
+
+.action-btn.active:hover {
+  color: #d54f95;
+  background: #fce7f3;
+}
+
+/* Dark mode */
+body.dark .action-btn {
+  color: #6b7280;
+}
+
+body.dark .action-btn:hover {
+  background: #1f2937;
+  color: #9ca3af;
+}
+
+body.dark .action-btn.active {
+  color: #EA60A6;
+}
+
+body.dark .action-btn.active:hover {
+  background: #2a1a24;
 }
 
 </style>

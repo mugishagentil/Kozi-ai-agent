@@ -7,6 +7,7 @@ const swaggerJsdoc = require('swagger-jsdoc');
 const chatRoutes = require('./routes/chat.route');
 const adminRouter = require('./routes/admin.route');
 const gmailRouter = require('./routes/gmail.route');
+const jobsRouter = require('./routes/jobs.route');
 const { errorHandler } = require('./middlewares/error');
 const logger = require('./utils/logger');
 
@@ -39,6 +40,7 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRouter);
 app.use('/api/gmail', gmailRouter);
+app.use('/api/jobs', jobsRouter);
 
 app.use(errorHandler);
 

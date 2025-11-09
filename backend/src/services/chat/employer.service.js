@@ -252,6 +252,21 @@ async function chat(req, res) {
       return;
     }
 
+    // Handle email draft responses
+    if (agentResult && agentResult.type === 'email_draft') {
+      await prisma.chatMessage.create({
+        data: { 
+          sessionId: Number(sessionId), 
+          role: 'assistant', 
+          content: agentResult.message 
+        },
+      });
+
+      const responseContent = agentResult.message;
+      await streamResponse(res, responseContent);
+      return;
+    }
+
     // Handle error responses from agent with friendly messages
     if (agentResult && agentResult.type === 'error') {
       const friendlyMessage = getFriendlyErrorMessage({ code: agentResult.code });

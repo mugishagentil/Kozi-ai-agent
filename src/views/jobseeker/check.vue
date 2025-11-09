@@ -38,6 +38,7 @@
         jobs: [],
         message: null,
         messageType: null,
+        backendUrl: process.env.VUE_APP_BACKEND_URL || 'http://localhost:5050',
       };
     },
     mounted() {
@@ -53,7 +54,7 @@
             return;
           }
   
-          const response = await fetch(`${globalVariable}/admin/select_jobss`, {
+          const response = await fetch(`${this.backendUrl}/api/jobs/list`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },

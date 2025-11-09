@@ -86,6 +86,7 @@ class EmployerAgent {
       selectedCandidateIndex: null,
       lastSearchType: null,
       lastEmployerIntent: false,
+      isEmailRequest: false,
     };
   }
 
@@ -156,6 +157,21 @@ class EmployerAgent {
 
   async shouldHandleQuery(userMessage, conversationHistory = []) {
     const lower = (userMessage || '').toLowerCase();
+    
+    // Check for email writing help requests
+    const emailWritingKeywords = [
+      'write email', 'draft email', 'help me write', 'compose email',
+      'email template', 'email draft', 'prepare email', 'need to email',
+      'help write an email', 'write an email', 'email to candidate',
+      'email to', 'send email', 'create email'
+    ];
+    const isEmailWritingRequest = emailWritingKeywords.some(kw => lower.includes(kw));
+    
+    if (isEmailWritingRequest) {
+      this.conversationContext.lastEmployerIntent = true;
+      this.conversationContext.isEmailRequest = true;
+      return true;
+    }
     
     // Block job seeker queries
     const jobSeekerIndicators = [
@@ -522,6 +538,50 @@ Generate ONLY the response message, no JSON:
     });
   }
 
+  /**
+   * Generate a professional email based on employer's request
+   */
+  async generateProfessionalEmail(userMessage) {
+    try {
+      console.log('[EmployerAgent] Generating professional email');
+      
+      const prompt = `You are a professional email writing assistant helping an employer write emails to candidates or other business contacts.
+
+User request: "${userMessage}"
+
+Generate a professional, well-structured email based on the request. The email should:
+1. Have an appropriate subject line (marked as **Subject:**)
+2. Include proper greeting
+3. Be clear and professional
+4. Include relevant details based on the context
+5. Have an appropriate closing
+6. Be ready to copy and use
+
+Format:
+**Subject:** [Generated Subject]
+
+[Email Body]
+
+Return ONLY the email, no additional commentary.`;
+
+      const response = await this.llm.invoke(prompt);
+      const emailContent = this._extractTextFromLLMResponse(response);
+      
+      return {
+        type: 'email_draft',
+        message: `📧 **Professional Email Draft**\n\n${emailContent}\n\n---\n\n✅ You can copy this email and send it to your recipient.`,
+        emailContent
+      };
+    } catch (error) {
+      console.error('[EmployerAgent] Email generation error:', error);
+      return {
+        type: 'error',
+        message: `I encountered an issue generating the email: ${error.message}. Please try rephrasing your request.`,
+        code: 'EMAIL_GENERATION_ERROR'
+      };
+    }
+  }
+
   calculateProfileCompleteness(candidate) {
     const fields = ['first_name', 'last_name', 'bio', 'image', 'skills', 'experience', 'province', 'district'];
     let score = fields.reduce((acc, f) => acc + (candidate[f] ? 1 : 0), 0);
@@ -537,6 +597,12 @@ Generate ONLY the response message, no JSON:
       
       const shouldHandle = await this.shouldHandleQuery(userMessage, conversationHistory);
       if (!shouldHandle) return null;
+
+      // Check if this is an email writing request
+      if (this.conversationContext.isEmailRequest) {
+        this.conversationContext.isEmailRequest = false; // Reset flag
+        return await this.generateProfessionalEmail(userMessage);
+      }
 
       const filters = await this.extractFiltersFromQuery(userMessage, conversationHistory);
       const isLoadMore = filters.isRequestForMore || false;
@@ -642,11 +708,18 @@ Generate ONLY the response message, no JSON:
   formatCandidateForCard(candidate) {
     return {
       id: candidate.id || candidate.users_id || null,
+      users_id: candidate.users_id || candidate.id || null,
       first_name: candidate.first_name || 'Not specified',
       last_name: candidate.last_name || 'Not specified',
+      image: candidate.image || null,
       profilePicture: candidate.image || null,
       bio: candidate.bio || null,
       verification_badge: candidate.verification_badge || 0,
+      categories_id: candidate.categories_id || candidate.category_id || null,
+      province: candidate.province || null,
+      district: candidate.district || null,
+      phone: candidate.phone || null,
+      email: candidate.email || null,
     };
   }
 

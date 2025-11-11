@@ -947,13 +947,18 @@ async function handlePayment(userMsg) {
     
     // Get upcoming payments
     if (lowerMsg.includes('upcoming') || lowerMsg.includes('show') || lowerMsg.includes('list')) {
+      console.log('[Admin Payment] Fetching upcoming payments...');
       const result = await listUpcomingPayments();
       
-      if (!result.success || !result.data || result.data.length === 0) {
-        return `💰 **No Upcoming Payments**\n\nThere are currently no upcoming salary payments scheduled.`;
+      if (!result.success) {
+        return `💰 **Payment System Status**\n\n❌ Unable to fetch payment data.\n\n**Issue:** ${result.error || 'Unknown error'}\n\n**Troubleshooting:**\n• Check that hired employees exist in the system\n• Verify the external API is accessible\n• Check backend logs for detailed error messages\n\nPlease contact technical support if the issue persists.`;
       }
       
-      let response = `💰 **Upcoming Salary Payments**\n\n`;
+      if (!result.data || result.data.length === 0) {
+        return `💰 **No Upcoming Payments**\n\nThere are currently no salary payments due in the next 7 days.\n\n**Possible reasons:**\n• No employees have been hired yet\n• All hire dates are outside the 7-day payment window\n• Payment dates haven't been reached yet\n\n**Tip:** Payments are calculated monthly based on the hire date. For example, if someone was hired on the 15th, their payment is due on the 15th of each month.\n\nCheck the backend console logs for detailed information about payment calculations.`;
+      }
+      
+      let response = `💰 **Upcoming Salary Payments** (Next 7 Days)\n\n`;
       result.data.forEach((payment, idx) => {
         const employeeName = payment.job_seeker ? 
           `${payment.job_seeker.first_name} ${payment.job_seeker.last_name}` : 
@@ -963,12 +968,12 @@ async function handlePayment(userMsg) {
           'Unknown Employer';
         
         response += `${idx + 1}. **${employeeName}** (${employerName})\n`;
-        response += `   Amount: ${payment.amount} RWF\n`;
-        response += `   Due: ${new Date(payment.due_date).toLocaleDateString()}\n`;
-        response += `   Status: ${payment.status}\n\n`;
+        response += `   💵 Amount: ${payment.amount ? payment.amount.toLocaleString() + ' RWF' : 'Not specified'}\n`;
+        response += `   📅 Due: ${new Date(payment.due_date).toLocaleDateString()}\n`;
+        response += `   📊 Status: ${payment.status}\n\n`;
       });
       
-      return response + `\nWould you like me to generate a payment report or send notifications?`;
+      return response + `\n**Total:** ${result.data.length} payment${result.data.length > 1 ? 's' : ''} due\n\nWould you like me to generate a detailed payment report or send notifications to employers?`;
     }
     
     // Mark payment as paid

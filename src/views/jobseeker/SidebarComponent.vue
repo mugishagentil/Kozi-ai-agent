@@ -25,7 +25,7 @@
                 'dropdown-open': aiDropdownOpen 
               }">
               <span>
-                <img src="/AI-Logo.png" alt="AI" class="ai-sidebar-icon" />
+                <img src="/generative.png" alt="AI" class="ai-sidebar-icon" />
               </span>
               <span class="hide-menu">{{ item.name }}</span>
               <i class="ti ti-chevron-down ai-chevron ms-auto" 
@@ -38,7 +38,7 @@
               style="cursor: pointer;"
             >
               <span>
-                <img src="/AI-Logo.png" alt="AI" class="ai-sidebar-icon" />
+                <img src="/generative.png" alt="AI" class="ai-sidebar-icon" />
               </span>
               <span class="hide-menu">{{ item.name }}</span>
             </a>

@@ -276,6 +276,26 @@ Return JSON only:
     const prompt = `
 Extract search filters for candidate search based on the conversation.
 
+**CRITICAL: Be AGGRESSIVE about extracting category names!**
+
+When user mentions a job type/skill, ALWAYS try to match it to a category:
+- "marketing" or "marketer" → categoryName: "Marketing Specialist" 
+- "sales" or "salesperson" → categoryName: "Salesperson"
+- "driver" → categoryName: "Driver"
+- "chef" or "cook" → categoryName: "Chef"
+- "cleaner" or "cleaning" → categoryName: "Cleaner"
+- "construction" or "builder" → categoryName: "Construction Worker"
+- "security" or "guard" → categoryName: "Security Guard"
+- "IT" or "tech" or "developer" → categoryName: "IT Specialist"
+- "accountant" or "accounting" → categoryName: "Accountant"
+- "nurse" or "doctor" or "medical" → categoryName: "Healthcare Worker"
+
+**RULES:**
+1. ALWAYS extract categoryName if user mentions ANY job type/skill
+2. Match to EXACT category names from the list below (case-insensitive)
+3. Extract "role" for additional filtering within the category
+4. If no exact match, choose the closest category
+
 Recent conversation:
 ${recentHistory || 'No previous context'}
 
@@ -283,18 +303,40 @@ Current message: """${userQuery}"""
 
 Available categories: ${categoriesList}
 
+**Examples:**
+User: "I need a person who can do marketing"
+→ { "role": "marketing", "categoryName": "Marketing Specialist", "location": null }
+
+User: "Find me a driver in Kigali"
+→ { "role": "driver", "categoryName": "Driver", "location": "Kigali" }
+
+User: "I need someone for sales full-time"
+→ { "role": "sales", "categoryName": "Salesperson", "employmentType": "full-time" }
+
+User: "Choose the best person for me" or "Give me the top 3"
+→ { "isRecommendationRequest": true, "topN": 3 }
+
+User: "Which candidate is better?" or "Recommend the best one"
+→ { "isRecommendationRequest": true, "topN": 1 }
+
 Return JSON only:
 {
   "role": "specific role or null",
   "location": "specific location or null",
   "employmentType": "full-time | part-time | remote | contract | null",
-  "categoryName": "exact category from list or null",
+  "categoryName": "exact category from list or null (ALWAYS try to extract this!)",
   "maxResults": number or null,
   "isRequestForMore": true|false,
+  "isRecommendationRequest": true|false,
+  "topN": number or null,
   "hasAtLeastOneFilter": true|false
 }
 
-Set hasAtLeastOneFilter to true ONLY if at least one of: role, location, employmentType, or categoryName is provided.
+**CRITICAL DETECTION RULES:**
+- If user says "choose for me", "select the best", "recommend", "which one is better", "top 3", "best candidate", "just choose", "pick the best" → isRecommendationRequest: true
+- Extract the number if they say "top 3", "best 5", "three best" etc. → topN: 3 or 5
+- If isRecommendationRequest is true, also set isRequestForMore: false
+- Set hasAtLeastOneFilter to true ONLY if at least one of: role, location, employmentType, or categoryName is provided.
 `;
 
     try {
@@ -306,6 +348,7 @@ Set hasAtLeastOneFilter to true ONLY if at least one of: role, location, employm
       const content = this._extractTextFromLLMResponse(response);
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
+        console.warn('[EmployerAgent] Could not extract JSON from LLM response');
         if (this.hasActiveSearch && this.conversationContext.lastFilters) {
           return { ...this.conversationContext.lastFilters, isRequestForMore: true };
         }
@@ -325,6 +368,14 @@ Set hasAtLeastOneFilter to true ONLY if at least one of: role, location, employm
       const categoryName = parsed.categoryName || null;
       const categoryId = categoryName ? this.findCategoryIdByName(categoryName) : null;
 
+      console.log('[EmployerAgent] 🔍 Extracted filters:', {
+        role: parsed.role,
+        categoryName,
+        categoryId,
+        location: parsed.location,
+        employmentType: parsed.employmentType
+      });
+
       const filters = {
         role: parsed.role || null,
         location: parsed.location || null,
@@ -333,6 +384,8 @@ Set hasAtLeastOneFilter to true ONLY if at least one of: role, location, employm
         categoryId,
         maxResults: parsed.maxResults || null,
         isRequestForMore: parsed.isRequestForMore || false,
+        isRecommendationRequest: parsed.isRecommendationRequest || false,
+        topN: parsed.topN || null,
         hasAtLeastOneFilter: parsed.hasAtLeastOneFilter || false,
       };
 
@@ -342,7 +395,17 @@ Set hasAtLeastOneFilter to true ONLY if at least one of: role, location, employm
 
       return filters;
     } catch (err) {
-      console.warn('[EmployerAgent] extractFiltersFromQuery LLM error:', err.message);
+      console.error('[EmployerAgent] extractFiltersFromQuery LLM error:', {
+        message: err.message,
+        code: err.code,
+        status: err.status,
+        stack: err.stack?.substring(0, 500)
+      });
+      
+      // If it's an OpenAI/LLM error, throw it up to be handled as an APIError
+      if (err.message?.includes('OpenAI') || err.message?.includes('API') || err.code === 'ECONNREFUSED' || err.status) {
+        throw new APIError(`AI service error: ${err.message}`, 'API_ERROR');
+      }
       
       if (this.hasActiveSearch && this.conversationContext.lastFilters) {
         return { ...this.conversationContext.lastFilters, isRequestForMore: true };
@@ -356,6 +419,8 @@ Set hasAtLeastOneFilter to true ONLY if at least one of: role, location, employm
         categoryName: null, 
         maxResults: null, 
         isRequestForMore: false,
+        isRecommendationRequest: false,
+        topN: null,
         hasAtLeastOneFilter: false 
       };
     }
@@ -438,6 +503,124 @@ Generate ONLY the response message, no JSON:
     }
   }
 
+  async analyzeAndRecommendTopCandidates(candidates, topN = 3, filters = {}) {
+    if (!candidates || candidates.length === 0) {
+      return {
+        recommendations: [],
+        message: "I don't have any candidates to analyze at the moment. Please perform a search first."
+      };
+    }
+
+    const actualTopN = Math.min(topN, candidates.length, 5); // Max 5 recommendations
+    const candidateSummaries = candidates.slice(0, 20).map((c, idx) => { // Analyze top 20 only for performance
+      return `
+Candidate ${idx + 1}:
+- Name: ${c.name || c.first_name + ' ' + c.last_name || 'Unknown'}
+- Location: ${c.location || c.district || c.province || 'Not specified'}
+- Skills: ${c.skills?.substring(0, 150) || c.bio?.substring(0, 100) || 'Not specified'}
+- Experience: ${c.experience?.substring(0, 150) || c.summary?.substring(0, 100) || 'Not specified'}
+- Verified: ${c.isVerified || c.is_verified ? 'Yes' : 'No'}
+`.trim();
+    }).join('\n\n');
+
+    const prompt = `
+You are an expert HR consultant helping an employer select the best candidates for a ${filters.role || 'marketing'} position${filters.location ? ` in ${filters.location}` : ''}.
+
+**Your Task:** Analyze these candidates and recommend the TOP ${actualTopN} best matches with clear reasoning.
+
+**Evaluation Criteria:**
+1. **Relevant Experience:** How well their background matches the role
+2. **Skills Quality:** Depth and relevance of listed skills
+3. **Profile Completeness:** Well-written bio, clear experience
+4. **Verification Status:** Verified profiles are more trustworthy
+5. **Communication:** Professional presentation and clarity
+
+**Candidates to Analyze:**
+${candidateSummaries}
+
+**Instructions:**
+1. Evaluate each candidate objectively
+2. Select the TOP ${actualTopN} best candidates
+3. For each recommended candidate, provide:
+   - Candidate number (from the list above)
+   - 2-3 sentences explaining WHY they're a top choice
+   - Key strengths that stand out
+
+**Output Format (JSON):**
+{
+  "recommendations": [
+    {
+      "candidateIndex": 0,
+      "name": "Candidate Name",
+      "reasoning": "Clear explanation of why this person is recommended",
+      "keyStrengths": ["Strength 1", "Strength 2", "Strength 3"]
+    }
+  ],
+  "summary": "Brief 1-2 sentence overview of why these are the best choices"
+}
+
+Return ONLY valid JSON, no additional text.
+`;
+
+    try {
+      const response = await Promise.race([
+        this.llm.invoke(prompt),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Analysis timeout')), 10000))
+      ]);
+
+      const content = this._extractTextFromLLMResponse(response);
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      
+      if (!jsonMatch) {
+        throw new Error('Could not parse AI analysis response');
+      }
+
+      const analysis = JSON.parse(jsonMatch[0]);
+      
+      // Map the recommendations back to actual candidate objects
+      const recommendedCandidates = analysis.recommendations.map(rec => {
+        const candidate = candidates[rec.candidateIndex];
+        return {
+          ...this.formatCandidateForCard(candidate),
+          aiRecommendation: {
+            reasoning: rec.reasoning,
+            keyStrengths: rec.keyStrengths
+          }
+        };
+      });
+
+      // Generate natural language message
+      let message = `**🎯 Top ${actualTopN} Recommended Candidates:**\n\n`;
+      
+      analysis.recommendations.forEach((rec, idx) => {
+        message += `**${idx + 1}. ${rec.name}**\n`;
+        message += `${rec.reasoning}\n`;
+        message += `**Key Strengths:** ${rec.keyStrengths.join(', ')}\n\n`;
+      });
+      
+      message += `\n${analysis.summary}\n\n`;
+      message += `You can view their full profiles and contact them directly. Would you like me to help you draft an email to any of these candidates?`;
+
+      console.log(`[EmployerAgent] ✅ Generated ${actualTopN} recommendations with AI analysis`);
+      
+      return {
+        recommendations: recommendedCandidates,
+        message,
+        analysis
+      };
+
+    } catch (err) {
+      console.error('[EmployerAgent] analyzeAndRecommendTopCandidates error:', err);
+      
+      // Fallback: Just return top N by existing ranking
+      const topCandidates = candidates.slice(0, actualTopN).map(c => this.formatCandidateForCard(c));
+      return {
+        recommendations: topCandidates,
+        message: `Here are the top ${actualTopN} candidates from your search results. These are ranked based on profile completeness and relevance. Would you like me to analyze them in more detail?`
+      };
+    }
+  }
+
   async performSearch(filters = {}, isLoadMore = false) {
     const maxResultsRequested = filters.maxResults ? Number(filters.maxResults) : 6;
     const maxResults = Math.min(Math.max(1, maxResultsRequested), 50);
@@ -459,6 +642,8 @@ Generate ONLY the response message, no JSON:
 
     try {
       if (filters.categoryId) {
+        console.log(`[EmployerAgent] 🎯 Searching in specific category: ${filters.categoryName} (ID: ${filters.categoryId})`);
+        
         const qsObj = {};
         if (filters.location) qsObj.location = filters.location;
         if (filters.role) qsObj.role = filters.role;
@@ -469,7 +654,9 @@ Generate ONLY the response message, no JSON:
         const url = `${this.JOB_SEEKERS_BY_CATEGORY_API.replace(/\/+$/, '')}/${filters.categoryId}${q ? '?' + q : ''}`;
         const data = await this.fetchWithToken(url);
         candidates = Array.isArray(data) ? data : [];
+        console.log(`[EmployerAgent] ✅ Found ${candidates.length} candidates in ${filters.categoryName} category`);
       } else {
+        console.log('[EmployerAgent] ⚠️  No specific category - searching ALL categories');
         for (const cat of this.categories) {
           try {
             const url = `${this.JOB_SEEKERS_BY_CATEGORY_API.replace(/\/+$/, '')}/${cat.id}`;
@@ -507,16 +694,28 @@ Generate ONLY the response message, no JSON:
 
       if (filters.role) {
         const wantRole = String(filters.role).toLowerCase();
-        const candidateText = [c.title, c.first_name, c.last_name, c.bio, c.skills, c.experience, c.profession, c.summary]
+        const candidateText = [
+          c.title, c.first_name, c.last_name, c.bio, 
+          c.skills, c.experience, c.profession, c.summary,
+          c.category_name, c.job_title, c.specialization
+        ]
           .filter(Boolean).map(x => String(x).toLowerCase()).join(' ');
-        if (!candidateText.includes(wantRole)) {
-          if (!candidateText.split(/\s+/).some(t => t.includes(wantRole) || wantRole.includes(t))) {
-            return false;
-          }
-        }
+        
+        // Split role into keywords and check if ANY keyword matches
+        const roleKeywords = wantRole.split(/\s+/);
+        const hasMatch = roleKeywords.some(keyword => 
+          candidateText.includes(keyword) || 
+          candidateText.split(/\s+/).some(t => 
+            t.includes(keyword) || keyword.includes(t)
+          )
+        );
+        
+        if (!hasMatch) return false;
       }
       return true;
     });
+
+    console.log(`[EmployerAgent] 📊 After filtering: ${filtered.length} candidates match criteria`);
 
     const ranked = this.rankCandidates(filtered);
     this.allMatchedCandidates = ranked;
@@ -607,6 +806,28 @@ Return ONLY the email, no additional commentary.`;
       const filters = await this.extractFiltersFromQuery(userMessage, conversationHistory);
       const isLoadMore = filters.isRequestForMore || false;
       
+      // Handle recommendation requests (user wants AI to analyze and select best candidates)
+      if (filters.isRecommendationRequest && this.hasActiveSearch && this.allMatchedCandidates.length > 0) {
+        console.log('[EmployerAgent] 🎯 Processing recommendation request');
+        const topN = filters.topN || 3;
+        const result = await this.analyzeAndRecommendTopCandidates(
+          this.allMatchedCandidates, 
+          topN, 
+          this.conversationContext.lastFilters || filters
+        );
+        
+        return {
+          type: 'recommendations',
+          data: result.recommendations,
+          candidates: result.recommendations,
+          message: result.message,
+          searchMode: 'recommendations',
+          totalFound: this.totalMatchedCount,
+          showing: result.recommendations.length,
+          hasMore: false
+        };
+      }
+      
       // If requesting more results from active search
       if (isLoadMore && this.hasActiveSearch) {
         const candidates = await this.performSearch(filters, true);
@@ -686,21 +907,29 @@ Return ONLY the email, no additional commentary.`;
         currentOffset: this.currentOffset,
       };
     } catch (err) {
-      console.error('[EmployerAgent] processMessage error:', err);
+      console.error('[EmployerAgent] processMessage error:', {
+        message: err.message,
+        stack: err.stack,
+        code: err.code,
+        isAPIError: err instanceof APIError,
+        isValidationError: err instanceof ValidationError
+      });
       this.hasActiveSearch = false;
       
       if (err instanceof APIError) {
         return {
           type: 'error',
           message: `Unable to search for candidates: ${err.message}`,
-          code: err.code
+          code: err.code,
+          error: err.message
         };
       }
       
       return {
         type: 'error',
         message: `Sorry, I encountered an issue while searching. Please try again.`,
-        code: err.code || 'SEARCH_ERROR'
+        code: err.code || 'SEARCH_ERROR',
+        error: err.message
       };
     }
   }

@@ -37,24 +37,23 @@
                       /> 
                   </h3>
                   
-                  <div class="container">
-                    <div class="row">
-                      <div class="col-md-2 mt-2"><strong>Bio</strong></div>
-                      <div class="col-md-10 mt-2">{{ job.bio }}</div>
+                  <!-- Remove nested container to fix horizontal scroll -->
+                  <div class="row">
+                    <div class="col-md-2 mt-2"><strong>Bio</strong></div>
+                    <div class="col-md-10 mt-2">{{ job.bio }}</div>
 
-                      <div class="col-md-2 mt-2"><strong>Salary</strong></div>
-                      <div class="col-md-10 mt-2">{{ job.salary }}</div>
+                    <div class="col-md-2 mt-2"><strong>Salary</strong></div>
+                    <div class="col-md-10 mt-2">{{ job.salary }}</div>
 
-                      <div class="col-md-2 mt-2"><strong>Address</strong></div>
-                      <div class="col-md-10 mt-2">{{ job.province }} - {{ job.district }}</div>
+                    <div class="col-md-2 mt-2"><strong>Address</strong></div>
+                    <div class="col-md-10 mt-2">{{ job.province }} - {{ job.district }}</div>
 
-                      <div class="col-md-2 mt-2"><strong>Category</strong></div>
-                      <div class="col-md-10 mt-2">{{ categoryNames[job.categories_id] || 'Loading category...' }}</div>
+                    <div class="col-md-2 mt-2"><strong>Category</strong></div>
+                    <div class="col-md-10 mt-2">{{ categoryNames[job.categories_id] || 'Loading category...' }}</div>
 
-                      <div class="col-md-2 mt-2"></div>
-                      <div class="col-md-10 mt-2">
-                        <button class="btn btn-primary mt-3" @click="showHireModal = true">Hire</button>
-                      </div>
+                    <div class="col-md-2 mt-2"></div>
+                    <div class="col-md-10 mt-2">
+                      <button class="btn btn-primary mt-3" @click="showHireModal = true">Hire</button>
                     </div>
                   </div>
                 </div>
@@ -512,6 +511,14 @@ export default {
 
 <style scoped>
 
+/* Prevent horizontal scroll */
+.page-wrapper,
+.body-wrapper,
+.container-fluid,
+.card {
+  max-width: 100%;
+  overflow-x: hidden;
+}
 
 .pagination .page-item .page-link {
   color: #E960A6;
@@ -566,23 +573,61 @@ export default {
 }
 
 .form-control {
-          width: 100%;
-          padding: 15px;
-          height: 50px;
-          border: 1px solid #ccc;
-          border-radius: 5px;
-          box-sizing: border-box;
-          transition: border-color 0.3s, box-shadow 0.3s;
-          font-size: 16px;
-        }
-        
-        .form-control:focus {
-          border-color: #E960A6;
-          box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
-          outline: none;
-        }
+  width: 100%;
+  padding: 15px;
+  height: 50px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  box-sizing: border-box;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  font-size: 16px;
+}
+
+.form-control:focus {
+  border-color: #E960A6;
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+  outline: none;
+}
 
 .spinner-border {
   transition: opacity 0.2s ease;
+}
+
+/* Responsive fixes for mobile */
+@media (max-width: 768px) {
+  .col-md-2 {
+    flex: 0 0 100%;
+    max-width: 100%;
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+  }
+  
+  .col-md-10 {
+    flex: 0 0 100%;
+    max-width: 100%;
+    margin-bottom: 1rem;
+  }
+  
+  .col-md-4,
+  .col-md-8 {
+    flex: 0 0 100%;
+    max-width: 100%;
+    padding: 0 15px;
+  }
+  
+  .card {
+    margin: 0;
+    border-radius: 0;
+  }
+  
+  .body-wrapper {
+    margin-left: 0 !important;
+    padding: 10px !important;
+  }
+  
+  .row {
+    margin-left: 0;
+    margin-right: 0;
+  }
 }
 </style>

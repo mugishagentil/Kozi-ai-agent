@@ -269,6 +269,12 @@ async function chat(req, res) {
 
     // Handle error responses from agent with friendly messages
     if (agentResult && agentResult.type === 'error') {
+      console.error('[EmployerChat] Agent returned error:', {
+        code: agentResult.code,
+        message: agentResult.message,
+        originalError: agentResult.error
+      });
+      
       const friendlyMessage = getFriendlyErrorMessage({ code: agentResult.code });
       
       await prisma.chatMessage.create({
@@ -286,6 +292,31 @@ async function chat(req, res) {
       })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
+      return;
+    }
+
+    // Handle recommendations with AI analysis
+    if (agentResult && agentResult.type === 'recommendations') {
+      const responseContent = agentResult.message;
+
+      await prisma.chatMessage.create({
+        data: { 
+          sessionId: Number(sessionId), 
+          role: 'assistant', 
+          content: responseContent 
+        },
+      });
+
+      // Send recommended candidates with AI reasoning
+      if (agentResult.candidates && Array.isArray(agentResult.candidates) && agentResult.candidates.length > 0) {
+        res.write(`data: ${JSON.stringify({ 
+          candidates: agentResult.candidates,
+          isRecommendation: true 
+        })}\n\n`);
+      }
+
+      // Stream the analysis message
+      await streamResponse(res, responseContent);
       return;
     }
 

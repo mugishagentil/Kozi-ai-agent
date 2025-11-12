@@ -8,19 +8,22 @@
           @error="onPhotoError"
           class="photo-image"
         />
-        <div v-if="candidate.verification_badge" class="verification-badge">
+        <div v-if="candidate.verification_badge === 1" class="verification-badge">
           <i class="fas fa-check-circle"></i>
         </div>
       </div>
       <div class="candidate-info">
         <h3 class="candidate-name">
           {{ candidate.first_name }} {{ candidate.last_name }}
+          <img 
+            v-if="candidate.verification_badge === 1"
+            :src="badgeImage"
+            width="25"
+            height="25"
+            class="verification-badge-img"
+            alt="Verified"
+          />
         </h3>
-        <p class="candidate-category">{{ getCategoryName(candidate.categories_id) }}</p>
-        <div class="professional-badge" v-if="candidate.verification_badge">
-          <i class="fas fa-star"></i>
-          <span>Verified Professional</span>
-        </div>
       </div>
     </div>
     
@@ -82,19 +85,7 @@ export default {
     return {
       defaultPhoto: '/logo.png',
       uploadsUrl: 'https://apis.kozi.rw/uploads/profile/',
-      categories: {
-        // Add category mappings if needed
-        1: 'Sales',
-        2: 'Construction', 
-        3: 'Hospitality',
-        4: 'Healthcare',
-        5: 'Security',
-        6: 'Cleaning',
-        7: 'Driving',
-        8: 'Accounting',
-        9: 'IT',
-        10: 'Education'
-      }
+      badgeImage: require('@/assets/img/badge.png')
     }
   },
   computed: {
@@ -113,10 +104,6 @@ export default {
   methods: {
     onPhotoError(event) {
       event.target.src = this.defaultPhoto
-    },
-    
-    getCategoryName(categoryId) {
-      return this.categories[categoryId] || 'General'
     },
     
     getLocation(candidate) {
@@ -217,6 +204,12 @@ export default {
   border: 2px solid white;
 }
 
+.verification-badge-img {
+  margin-left: 5px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
 .candidate-info {
   flex: 1;
   min-width: 0;
@@ -226,34 +219,11 @@ export default {
   font-size: 1.1rem;
   font-weight: 700;
   color: #1f2937;
-  margin: 0 0 0.25rem 0;
+  margin: 0 0 0.5rem 0;
   line-height: 1.3;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-}
-
-.candidate-category {
-  font-size: 0.9rem;
-  color: #6b7280;
-  margin: 0 0 0.5rem 0;
-  font-weight: 500;
-}
-
-.professional-badge {
-  display: inline-flex;
-  align-items: center;
   gap: 0.25rem;
-  background: #fef3c7;
-  color: #d97706;
-  padding: 0.25rem 0.5rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.professional-badge i {
-  font-size: 0.7rem;
 }
 
 .candidate-card-body {
@@ -357,10 +327,6 @@ body.dark .candidate-name {
   color: #f9fafb;
 }
 
-body.dark .candidate-category {
-  color: #9ca3af;
-}
-
 body.dark .detail-item {
   color: #9ca3af;
 }
@@ -398,10 +364,6 @@ body.dark .btn-view-profile:hover:not(:disabled) {
   
   .candidate-name {
     font-size: 1rem;
-  }
-  
-  .candidate-category {
-    font-size: 0.85rem;
   }
   
   .candidate-details {

@@ -1,0 +1,37 @@
+/* Global styles to prevent horizontal scroll issues */
+
+/* Prevent horizontal scroll globally */
+html, body {
+  overflow-x: hidden;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Ensure all page wrappers don't cause overflow */
+.page-wrapper, 
+.body-wrapper,
+.container-fluid,
+.container {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Ensure rows don't exceed viewport */
+.row {
+  margin-left: 0;
+  margin-right: 0;
+  max-width: 100%;
+}
+
+/* Ensure cards don't overflow */
+.card {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Box sizing for all elements */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+

@@ -33,7 +33,7 @@
         <!-- Bot messages: keep wrapper for avatar alignment -->
         <template v-if="message.sender !== 'user'">
           <div class="message-avatar">
-            <img src="/AI-Logo.png" alt="AI" class="ai-avatar-img" />
+            <img src="/generative.png" alt="AI" class="ai-avatar-img" />
           </div>
           <div class="message-content">
             <div
@@ -454,13 +454,13 @@ const dislikeMessage = (message, index) => {
 .message {
   display: flex;
   gap: 0.6rem;
-  margin: 0.9rem 0;
+  margin: 0.5rem 0;
   align-items: flex-start; /* Changed to flex-start for better streaming alignment */
 }
 .message.user-message { flex-direction: row-reverse; }
 .message-avatar {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: #f3f4f6;
   display: flex;
@@ -476,8 +476,9 @@ const dislikeMessage = (message, index) => {
 .ai-avatar-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 50%;
+  padding: 2px;
 }
 .ai-text {
   color: #EA60A6;
@@ -486,7 +487,7 @@ const dislikeMessage = (message, index) => {
 
 .message-content { 
   max-width: 760px; 
-  min-height: 20px; /* Reduced minimum height for streaming state */
+  min-height: 0;
   width: fit-content; /* Make container fit content instead of expanding */
 }
 .bot-message .message-content { margin-right: auto; }
@@ -494,14 +495,14 @@ const dislikeMessage = (message, index) => {
 
 
 /* Avatar spacing relative to bubble side */
-.bot-message .message-avatar { margin-right: 14px; margin-left: 0; }
-.user-message .message-avatar { margin-left: 14px; margin-right: 0; }
+.bot-message .message-avatar { margin-right: 10px; margin-left: 0; }
+.user-message .message-avatar { margin-left: 10px; margin-right: 0; }
 
 .message-text,
 .formatted-content {
   padding: 0.65rem 0.9rem;
   border-radius: 18px;
-  line-height: 1.55;
+  line-height: 1.4;
   font-size: 0.98rem;
   transition: all 0.2s ease-in-out;
   display: inline-block;
@@ -552,7 +553,7 @@ const dislikeMessage = (message, index) => {
   background: transparent;
   border: none;
   box-shadow: none;
-  padding: 0.3rem 0 0.3rem 0;
+  padding: 0.2rem 0;
 }
 
 /* Align bubbles nearer to center like ref UI */
@@ -594,7 +595,7 @@ body.dark .bot-message .formatted-content {
   background: transparent;
   border: none;
   box-shadow: none;
-  padding: 0.3rem 0 0.3rem 0;
+  padding: 0.2rem 0;
 }
 body.dark .user-message .message-text { background: linear-gradient(135deg, #c73e8a 0%, #a93272 100%); border-color: transparent; }
 body.dark .message-avatar { 
@@ -686,15 +687,15 @@ body.dark .ai-text { color: #EA60A6; }
   }
   
   .bot-message .formatted-content { 
-    padding: 0.55rem 0.8rem !important;
+    padding: 0.4rem 0.6rem !important;
     width: 100%;
     max-width: 100%;
   }
   
   /* Mobile streaming state */
   .message.streaming .formatted-content {
-    padding: 0.3rem 0.6rem !important;
-    min-height: 25px;
+    padding: 0.2rem 0.5rem !important;
+    min-height: 20px;
   }
   
   .bot-message {
@@ -719,9 +720,11 @@ body.dark .ai-text { color: #EA60A6; }
     height: 3px;
   }
   
-  /* Mobile message actions */
+  /* Mobile message actions - always visible on mobile */
   .message-actions {
+    display: flex !important;
     opacity: 1;
+    margin-top: 0.5rem;
     gap: 0.4rem;
   }
   
@@ -733,15 +736,13 @@ body.dark .ai-text { color: #EA60A6; }
 
 /* Message Action Buttons */
 .message-actions {
-  display: flex;
+  display: none;
   gap: 0.5rem;
   margin-top: 0.5rem;
-  opacity: 0;
-  transition: opacity 0.2s ease;
 }
 
 .bot-message:hover .message-actions {
-  opacity: 1;
+  display: flex;
 }
 
 .action-btn {

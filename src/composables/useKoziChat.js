@@ -356,50 +356,59 @@ const initializeUser = async () => {
           const token = employeeToken || employerToken || adminToken || agentToken;
           
           if (userEmail && token) {
+            // First, try to extract from token payload (faster and works for all roles)
             try {
-              const resId = await fetch(
-                `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`,
-                {
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                  },
-                }
-              );
+              console.log('🔍 Step 1: Attempting to extract userId from token payload...');
+              const payload = JSON.parse(atob(token.split(".")[1]));
+              console.log('📋 Token payload:', payload);
+              console.log('📋 Token payload keys:', Object.keys(payload));
               
-              if (resId.ok) {
-                const dataId = await resId.json();
-                if (dataId.users_id) {
-                  users_id = dataId.users_id;
-                  currentUser.value.users_id = users_id; // Update current user
-                  console.log('✅ Fetched users_id from API:', users_id);
-                }
+              // Check various possible userId fields in token
+              if (payload.userId || payload.user_id || payload.id || payload.users_id || 
+                  payload.sub || payload.userID) {
+                users_id = payload.userId || payload.user_id || payload.id || payload.users_id || 
+                          payload.sub || payload.userID;
+                currentUser.value.users_id = users_id;
+                console.log('✅ Extracted users_id from token payload:', users_id);
               } else {
-                // If API fails, try extracting from token payload as fallback (for all roles)
-                console.log('⚠️ API call failed, trying to extract userId from token payload...');
-                try {
-                  const payload = JSON.parse(atob(token.split(".")[1]));
-                  console.log('📋 Token payload:', payload);
-                  console.log('📋 Token payload keys:', Object.keys(payload));
-                  
-                  // Check various possible userId fields in token
-                  if (payload.userId || payload.user_id || payload.id || payload.users_id || 
-                      payload.sub || payload.userId || payload.userID) {
-                    users_id = payload.userId || payload.user_id || payload.id || payload.users_id || 
-                              payload.sub || payload.userId || payload.userID;
-                    currentUser.value.users_id = users_id;
-                    console.log('✅ Extracted users_id from token payload:', users_id);
-                  } else {
-                    console.warn('⚠️ Token payload does not contain userId field. Available keys:', Object.keys(payload));
-                    // Log the full payload for debugging
-                    console.log('📋 Full token payload:', JSON.stringify(payload, null, 2));
-                  }
-                } catch (e) {
-                  console.warn('⚠️ Could not extract userId from token:', e);
-                }
+                console.warn('⚠️ Token payload does not contain userId field. Available keys:', Object.keys(payload));
+                // Log the full payload for debugging
+                console.log('📋 Full token payload:', JSON.stringify(payload, null, 2));
               }
-            } catch (fetchError) {
-              console.warn('⚠️ Error fetching userId:', fetchError);
+            } catch (tokenError) {
+              console.warn('⚠️ Could not extract userId from token:', tokenError);
+            }
+            
+            // If token extraction failed, try fetching from external API
+            if (!users_id) {
+              try {
+                console.log('🔍 Step 2: Attempting to fetch userId from external API...');
+                const resId = await fetchWithTimeout(
+                  `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`,
+                  {
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    timeout: 5000 // 5 second timeout
+                  }
+                );
+                
+                if (resId.ok) {
+                  const dataId = await resId.json();
+                  if (dataId.users_id) {
+                    users_id = dataId.users_id;
+                    currentUser.value.users_id = users_id; // Update current user
+                    console.log('✅ Fetched users_id from API:', users_id);
+                  }
+                } else {
+                  console.warn('⚠️ API call failed with status:', resId.status);
+                  const errorText = await resId.text().catch(() => '');
+                  console.warn('⚠️ API error response:', errorText);
+                }
+              } catch (fetchError) {
+                console.warn('⚠️ Error fetching userId from API:', fetchError.message || fetchError);
+              }
             }
           }
           
@@ -418,7 +427,7 @@ const initializeUser = async () => {
           );
           
           if (!hasErrorAlready) {
-            addBotMessage('Sorry, I could not retrieve your user information. Please refresh the page and try again.');
+            addBotMessage('Sorry, I could not retrieve your user information. Please refresh the page and try again. If the issue persists, please log out and log in again.');
           }
           return;
         }
@@ -1039,12 +1048,12 @@ function isAdminUser() {
 
 // Generic fetch with timeout
 async function fetchWithTimeout(resource, options = {}) {
-  const { timeout = 10000 } = options
+  const { timeout = 10000, ...fetchOptions } = options
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), timeout)
 
   try {
-    const response = await fetch(resource, { ...options, signal: controller.signal })
+    const response = await fetch(resource, { ...fetchOptions, signal: controller.signal })
     return response
   } finally {
     clearTimeout(id)
@@ -1082,72 +1091,76 @@ async function getUserFromLocalStorage() {
       throw new Error('No authentication token found in localStorage. Please log in.')
     }
     
-    // Fetch user_id from API using the email
-    // For admin users, the external API might reject adminToken, so we'll try to get userId
-    // from the token payload or create a user object without userId (will be fetched later)
-    console.log('🔍 Fetching user ID for email:', userEmail)
+    // Try to get userId - prioritize token extraction for better reliability
+    // For admin users, the external API might reject adminToken, so token extraction is preferred
+    console.log('🔍 Retrieving user ID for email:', userEmail)
     
     let users_id = null;
-    let dataId = null;
     
+    // Step 1: Try to extract userId from token payload first (faster and works for all roles)
     try {
-    const resId = await fetch(
-      `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
-    
-      if (resId.ok) {
-        dataId = await resId.json();
-    console.log('📋 User ID response:', dataId)
-        users_id = dataId.users_id;
+      console.log('🔍 Step 1: Attempting to extract userId from token payload...');
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      console.log('📋 Token payload keys:', Object.keys(payload));
+      
+      // Check various possible userId fields in token payload
+      if (payload.userId || payload.user_id || payload.id || payload.users_id || 
+          payload.sub || payload.userID) {
+        users_id = payload.userId || payload.user_id || payload.id || payload.users_id || 
+                  payload.sub || payload.userID;
+        console.log('✅ Extracted users_id from token payload:', users_id);
       } else {
-        const errorText = await resId.text();
-        console.warn('⚠️ User ID fetch failed:', resId.status, errorText)
+        console.warn('⚠️ Token payload does not contain userId field. Available keys:', Object.keys(payload));
+        console.log('📋 Full token payload:', JSON.stringify(payload, null, 2));
         
-        // Try to extract userId from token payload as fallback (for ALL roles)
-        try {
-          const payload = JSON.parse(atob(token.split(".")[1]));
-          console.log('🔍 Token payload:', payload);
-          console.log('🔍 Available token payload keys:', Object.keys(payload));
-          
-          // Check various possible userId fields in token payload
-          if (payload.userId || payload.user_id || payload.id || payload.users_id || 
-              payload.sub || payload.userId || payload.userID) {
-            users_id = payload.userId || payload.user_id || payload.id || payload.users_id || 
-                      payload.sub || payload.userId || payload.userID;
-            console.log('✅ Extracted users_id from token payload:', users_id);
-          } else {
-            console.warn('⚠️ Token payload does not contain userId field. Available keys:', Object.keys(payload));
-            
-            // Try alternative approaches - check if email or other identifier can help
-            // Some tokens might have email and we can use that to look up user differently
-            if (payload.email) {
-              console.log('📧 Token contains email:', payload.email);
-            }
-          }
-        } catch (tokenError) {
-          console.warn('⚠️ Could not extract userId from token:', tokenError);
-        }
-        
-        // If still no userId and it's a 403/401, allow creating user object without userId
-        // The chat will work and we can fetch userId later when needed
-        if (!users_id && (resId.status === 403 || resId.status === 401)) {
-          console.warn('⚠️ External API rejected token, but continuing with basic user object');
-          // Don't throw error, continue without userId
-        } else if (!users_id) {
-          // For other errors, still try to continue but log warning
-          console.warn('⚠️ Could not get userId, but continuing anyway');
+        // Try alternative approaches - check if email or other identifier can help
+        if (payload.email) {
+          console.log('📧 Token contains email:', payload.email);
         }
       }
-    } catch (fetchError) {
-      console.warn('⚠️ Error fetching user ID:', fetchError);
-      // Continue without userId - chat can still work
-      // Don't throw error, we'll create user object without userId
+    } catch (tokenError) {
+      console.warn('⚠️ Could not extract userId from token:', tokenError);
+    }
+    
+    // Step 2: If token extraction failed, try fetching from external API
+    if (!users_id) {
+      try {
+        console.log('🔍 Step 2: Attempting to fetch userId from external API...');
+        const resId = await fetchWithTimeout(
+          `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            timeout: 5000 // 5 second timeout
+          }
+        );
+        
+        if (resId.ok) {
+          const dataId = await resId.json();
+          console.log('📋 User ID response:', dataId)
+          users_id = dataId.users_id;
+          if (users_id) {
+            console.log('✅ Fetched users_id from API:', users_id);
+          }
+        } else {
+          const errorText = await resId.text();
+          console.warn('⚠️ User ID fetch failed:', resId.status, errorText)
+          
+          // If it's a 403/401, allow creating user object without userId
+          // The chat will work and we can fetch userId later when needed
+          if (resId.status === 403 || resId.status === 401) {
+            console.warn('⚠️ External API rejected token, but continuing with basic user object');
+          } else {
+            console.warn('⚠️ Could not get userId from API, but continuing anyway');
+          }
+        }
+      } catch (fetchError) {
+        console.warn('⚠️ Error fetching user ID from API:', fetchError.message || fetchError);
+        // Continue without userId - chat can still work
+        // Don't throw error, we'll create user object without userId
+      }
     }
     
     // Build basic user object - allow null users_id for all roles

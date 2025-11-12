@@ -9,7 +9,9 @@ function setupPaymentReminders() {
     try {
       logger.info('Running daily payment reminder check...');
       
-      const upcomingPayments = await listUpcomingPayments();
+      // Get API token from environment variable
+      const apiToken = process.env.API_TOKEN;
+      const upcomingPayments = await listUpcomingPayments(apiToken);
       
       if (upcomingPayments.success && upcomingPayments.data.length > 0) {
         logger.info(`Found ${upcomingPayments.data.length} upcoming payments`);
@@ -45,7 +47,8 @@ function setupOverduePaymentCheck() {
       logger.info('Running overdue payment check...');
       
       const now = new Date();
-      const overduePayments = await listUpcomingPayments();
+      const apiToken = process.env.API_TOKEN;
+      const overduePayments = await listUpcomingPayments(apiToken);
       
       if (overduePayments.success) {
         const overdue = overduePayments.data.filter(payment => 
@@ -79,7 +82,8 @@ function setupWeeklyReports() {
     try {
       logger.info('Generating weekly payment report...');
       
-      const upcomingPayments = await listUpcomingPayments();
+      const apiToken = process.env.API_TOKEN;
+      const upcomingPayments = await listUpcomingPayments(apiToken);
       
       if (upcomingPayments.success) {
         logger.info(`Weekly Report - Total upcoming payments: ${upcomingPayments.data.length}`);
@@ -128,7 +132,8 @@ async function triggerPaymentReminders() {
   try {
     logger.info('Manually triggering payment reminders...');
     
-    const upcomingPayments = await listUpcomingPayments();
+    const apiToken = process.env.API_TOKEN;
+    const upcomingPayments = await listUpcomingPayments(apiToken);
     
     if (upcomingPayments.success) {
       return {

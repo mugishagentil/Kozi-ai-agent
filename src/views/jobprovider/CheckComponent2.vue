@@ -22,27 +22,26 @@
                   <h3><strong>{{ job.first_name }} {{ job.last_name }}</strong></h3>
                   <h3>this is job provider_id<strong>{{ job.job_provider_id }} </strong></h3>
 
-                  <div class="container">
-                    <div class="row">
-                      <div class="col-md-2 mt-2"><strong>Bio</strong></div>
-                      <div class="col-md-10 mt-2">{{ job.bio }}</div>
+                  <!-- Remove nested container to fix horizontal scroll -->
+                  <div class="row">
+                    <div class="col-md-2 mt-2"><strong>Bio</strong></div>
+                    <div class="col-md-10 mt-2">{{ job.bio }}</div>
 
-                      <div class="col-md-2 mt-2"><strong>Salary</strong></div>
-                      <div class="col-md-10 mt-2">{{ job.salary }}</div>
+                    <div class="col-md-2 mt-2"><strong>Salary</strong></div>
+                    <div class="col-md-10 mt-2">{{ job.salary }}</div>
 
-                      <div class="col-md-2 mt-2"><strong>Location</strong></div>
-                      <div class="col-md-10 mt-2">{{ job.province }} - {{ job.district }}</div>
-                      <div class="col-md-2 mt-2"><strong>Category_id</strong></div>
-                      <div class="col-md-10 mt-2">{{ job.categories_id }}</div>
-                      
+                    <div class="col-md-2 mt-2"><strong>Location</strong></div>
+                    <div class="col-md-10 mt-2">{{ job.province }} - {{ job.district }}</div>
+                    <div class="col-md-2 mt-2"><strong>Category_id</strong></div>
+                    <div class="col-md-10 mt-2">{{ job.categories_id }}</div>
+                    
 
-                      <div class="col-md-2 mt-2"><strong>Category</strong></div>
-                      <div class="col-md-10 mt-2">{{ categoryNames[job.categories_id] || 'Loading category...' }}</div>
+                    <div class="col-md-2 mt-2"><strong>Category</strong></div>
+                    <div class="col-md-10 mt-2">{{ categoryNames[job.categories_id] || 'Loading category...' }}</div>
 
-                      <div class="col-md-2 mt-2"></div>
-                      <div class="col-md-10 mt-2">
-                        <button class="btn btn-primary mt-3" @click="showHireModal = true">Hire</button>
-                      </div>
+                    <div class="col-md-2 mt-2"></div>
+                    <div class="col-md-10 mt-2">
+                      <button class="btn btn-primary mt-3" @click="showHireModal = true">Hire</button>
                     </div>
                   </div>
                 </div>
@@ -291,6 +290,15 @@ async fetchCategoryName(categoryId) {
 </script>
 
 <style scoped>
+/* Prevent horizontal scroll */
+.page-wrapper,
+.body-wrapper,
+.container-fluid,
+.card {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .modal {
   position: fixed;
   top: 0;
@@ -313,5 +321,43 @@ async fetchCategoryName(categoryId) {
   background: none;
   border: none;
   font-size: 1.2rem;
+}
+
+/* Responsive fixes for mobile */
+@media (max-width: 768px) {
+  .col-md-2 {
+    flex: 0 0 100%;
+    max-width: 100%;
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+  }
+  
+  .col-md-10 {
+    flex: 0 0 100%;
+    max-width: 100%;
+    margin-bottom: 1rem;
+  }
+  
+  .col-md-4,
+  .col-md-8 {
+    flex: 0 0 100%;
+    max-width: 100%;
+    padding: 0 15px;
+  }
+  
+  .card {
+    margin: 0;
+    border-radius: 0;
+  }
+  
+  .body-wrapper {
+    margin-left: 0 !important;
+    padding: 10px !important;
+  }
+  
+  .row {
+    margin-left: 0;
+    margin-right: 0;
+  }
 }
 </style>

@@ -938,27 +938,164 @@ async function handleJobSeekers(userMsg, apiToken = null) {
   }
 }
 
+// ============ GENERATE FORMAL PAYMENT REPORT ============
+async function generateFormalPaymentReport(apiToken = null) {
+  const result = await listUpcomingPayments(apiToken);
+  
+  if (!result.success || !result.data || result.data.length === 0) {
+    return null;
+  }
+  
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const windowMessage = result.window === '14 days' ? 'Next 14 Days' : 'Upcoming Period';
+  
+  let report = `FORMAL SALARY PAYMENT REPORT\n`;
+  report += `═══════════════════════════════════════════════════════════════\n\n`;
+  report += `From: Kozi Admin Team\n`;
+  report += `Date: ${today}\n`;
+  report += `Subject: Upcoming Salary Payments Report (${windowMessage})\n\n`;
+  report += `═══════════════════════════════════════════════════════════════\n\n`;
+  report += `UPCOMING SALARY PAYMENTS\n\n`;
+  
+  result.data.forEach((payment, idx) => {
+    const employeeName = payment.job_seeker ? 
+      `${payment.job_seeker.first_name} ${payment.job_seeker.last_name}` : 
+      'Unknown Employee';
+    const employerName = payment.employer ? 
+      payment.employer.company_name : 
+      'Unknown Employer';
+    
+    const dueDate = new Date(payment.due_date);
+    const dueDateStr = dueDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const daysUntil = payment.days_until !== undefined ? payment.days_until : 
+      Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
+    
+    report += `${idx + 1}. ${employeeName}\n`;
+    report += `   ───────────────────────────────────────\n`;
+    report += `   Employer: ${employerName}\n`;
+    report += `   Position: ${payment.job_title || 'Not specified'}\n`;
+    report += `   Salary: ${payment.amount ? payment.amount.toLocaleString() + ' RWF' : 'Not specified'}\n`;
+    
+    if (payment.commission) {
+      report += `   Kozi Commission (18%): ${payment.commission.toLocaleString()} RWF\n`;
+    }
+    
+    report += `   Due Date: ${dueDateStr} (in ${daysUntil} day${daysUntil !== 1 ? 's' : ''})\n`;
+    report += `   Accommodation: ${payment.accommodation || 'Not specified'}\n`;
+    report += `   Address: ${payment.address || 'Not specified'}\n`;
+    report += `   Status: ${payment.status || 'Pending'}\n\n`;
+  });
+  
+  // Calculate totals
+  const totalSalaries = result.data.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalCommissions = result.data.reduce((sum, p) => sum + (p.commission || 0), 0);
+  
+  report += `═══════════════════════════════════════════════════════════════\n\n`;
+  report += `SUMMARY\n`;
+  report += `───────────────────────────────────────\n`;
+  report += `Total Payments: ${result.data.length}\n`;
+  report += `Total Salary Amount: ${totalSalaries.toLocaleString()} RWF\n`;
+  report += `Total Kozi Commission: ${totalCommissions.toLocaleString()} RWF\n\n`;
+  report += `═══════════════════════════════════════════════════════════════\n\n`;
+  report += `NEXT STEPS:\n`;
+  report += `Please review this report and coordinate with employers to ensure\n`;
+  report += `timely salary payments. Contact each employer 2-3 days before the\n`;
+  report += `due date to confirm payment processing.\n\n`;
+  report += `For questions or assistance:\n`;
+  report += `Email: info@kozi.rw\n`;
+  report += `Phone: +250 788 719 678\n`;
+  report += `Address: Kicukiro-Kagarama\n\n`;
+  report += `Best regards,\n`;
+  report += `Kozi Team\n`;
+  
+  return report;
+}
+
 // ============ PAYMENT HANDLER ============
-async function handlePayment(userMsg) {
+async function handlePayment(userMsg, apiToken = null) {
   try {
     console.log('[Payment] Processing query:', userMsg);
+    console.log('[Payment] Has API token:', !!apiToken);
     
     const lowerMsg = userMsg.toLowerCase();
+    
+    // Check if user wants to send report via email
+    const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+    const emailMatch = userMsg.match(emailPattern);
+    
+    if ((lowerMsg.includes('send') || lowerMsg.includes('email')) && 
+        (lowerMsg.includes('report') || emailMatch)) {
+      console.log('[Payment] Detected email report request');
+      
+      // Generate the formal report
+      const report = await generateFormalPaymentReport(apiToken);
+      
+      if (!report) {
+        return `❌ Unable to generate payment report. No payment data available.`;
+      }
+      
+      // If email address is provided, send it
+      if (emailMatch) {
+        const emailAddress = emailMatch[0];
+        console.log('[Payment] Sending report to:', emailAddress);
+        
+        try {
+          const emailService = require('../email.service').EmailService;
+          const service = new emailService();
+          
+          const result = await service.sendEmail({
+            to: emailAddress,
+            subject: 'Kozi - Upcoming Salary Payments Report',
+            body: report
+          });
+          
+          return `✅ **Payment Report Sent Successfully!**\n\n**To:** ${emailAddress}\n**Subject:** Kozi - Upcoming Salary Payments Report\n**Message ID:** ${result.messageId}\n\nThe formal payment report has been delivered to the specified email address.\n\nWould you like to send it to another recipient?`;
+        } catch (error) {
+          console.error('[Payment] Email send error:', error);
+          return `❌ **Failed to Send Report**\n\nError: ${error.message}\n\n**The Report:**\n\n${report}\n\nWould you like to try sending it again?`;
+        }
+      } else {
+        // Show report and ask for email
+        return `📄 **Formal Payment Report Generated**\n\n${report}\n\nWould you like me to email this report? Please provide the email address.`;
+      }
+    }
+    
+    // Generate report (without email)
+    if (lowerMsg.includes('generate') && lowerMsg.includes('report')) {
+      console.log('[Payment] Generating formal report');
+      
+      const report = await generateFormalPaymentReport(apiToken);
+      
+      if (!report) {
+        return `❌ Unable to generate payment report. No payment data available.`;
+      }
+      
+      return `📄 **Formal Payment Report**\n\n${report}\n\nWould you like me to email this report to someone? Just say "send it to email@example.com"`;
+    }
     
     // Get upcoming payments
     if (lowerMsg.includes('upcoming') || lowerMsg.includes('show') || lowerMsg.includes('list')) {
       console.log('[Admin Payment] Fetching upcoming payments...');
-      const result = await listUpcomingPayments();
+      const result = await listUpcomingPayments(apiToken);
       
       if (!result.success) {
         return `💰 **Payment System Status**\n\n❌ Unable to fetch payment data.\n\n**Issue:** ${result.error || 'Unknown error'}\n\n**Troubleshooting:**\n• Check that hired employees exist in the system\n• Verify the external API is accessible\n• Check backend logs for detailed error messages\n\nPlease contact technical support if the issue persists.`;
       }
       
       if (!result.data || result.data.length === 0) {
-        return `💰 **No Upcoming Payments**\n\nThere are currently no salary payments due in the next 7 days.\n\n**Possible reasons:**\n• No employees have been hired yet\n• All hire dates are outside the 7-day payment window\n• Payment dates haven't been reached yet\n\n**Tip:** Payments are calculated monthly based on the hire date. For example, if someone was hired on the 15th, their payment is due on the 15th of each month.\n\nCheck the backend console logs for detailed information about payment calculations.`;
+        return `💰 **No Upcoming Payments**\n\nThere are currently no salary payments calculated from the payroll records.\n\n**Possible reasons:**\n• No payroll records exist in the system\n• Payment dates could not be parsed from the data\n• All records have invalid date formats\n\n**Troubleshooting:**\n• Check backend console logs for detailed information\n• Verify payroll records have valid salary_date or starting_date fields\n• Contact technical support if the issue persists\n\n**Need help?** Email: info@kozi.rw | Phone: +250 788 719 678`;
       }
       
-      let response = `💰 **Upcoming Salary Payments** (Next 7 Days)\n\n`;
+      // Determine window message
+      const windowMessage = result.message || 
+        (result.window === '14 days' ? '(Next 14 Days)' : '(Upcoming Payments)');
+      
+      let response = `💰 **Upcoming Salary Payments** ${windowMessage}\n\n`;
+      
+      // Add notice if showing extended window
+      if (result.window !== '14 days' && result.message) {
+        response += `ℹ️  ${result.message}\n\n`;
+      }
       result.data.forEach((payment, idx) => {
         const employeeName = payment.job_seeker ? 
           `${payment.job_seeker.first_name} ${payment.job_seeker.last_name}` : 
@@ -968,12 +1105,46 @@ async function handlePayment(userMsg) {
           'Unknown Employer';
         
         response += `${idx + 1}. **${employeeName}** (${employerName})\n`;
-        response += `   💵 Amount: ${payment.amount ? payment.amount.toLocaleString() + ' RWF' : 'Not specified'}\n`;
-        response += `   📅 Due: ${new Date(payment.due_date).toLocaleDateString()}\n`;
+        response += `   💼 Position: ${payment.job_title || 'Not specified'}\n`;
+        response += `   💵 Salary: ${payment.amount ? payment.amount.toLocaleString() + ' RWF' : 'Not specified'}\n`;
+        
+        // Show Kozi commission if available
+        if (payment.commission) {
+          response += `   💎 Kozi Commission (18%): ${payment.commission.toLocaleString()} RWF\n`;
+        }
+        
+        // Show due date with days until payment
+        const dueDate = new Date(payment.due_date);
+        const dueDateStr = dueDate.toLocaleDateString();
+        const daysUntil = payment.days_until !== undefined ? payment.days_until : 
+          Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
+        
+        if (daysUntil === 0) {
+          response += `   📅 Due Date: ${dueDateStr} ⚠️ **DUE TODAY**\n`;
+        } else if (daysUntil === 1) {
+          response += `   📅 Due Date: ${dueDateStr} (Tomorrow)\n`;
+        } else if (daysUntil < 0) {
+          response += `   📅 Due Date: ${dueDateStr} 🔴 **OVERDUE by ${Math.abs(daysUntil)} days**\n`;
+        } else {
+          response += `   📅 Due Date: ${dueDateStr} (in ${daysUntil} days)\n`;
+        }
+        
+        response += `   🏠 Accommodation: ${payment.accommodation || 'Not specified'}\n`;
+        response += `   📍 Address: ${payment.address || 'Not specified'}\n`;
         response += `   📊 Status: ${payment.status}\n\n`;
       });
       
-      return response + `\n**Total:** ${result.data.length} payment${result.data.length > 1 ? 's' : ''} due\n\nWould you like me to generate a detailed payment report or send notifications to employers?`;
+      // Calculate totals
+      const totalSalaries = result.data.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const totalCommissions = result.data.reduce((sum, p) => sum + (p.commission || 0), 0);
+      
+      response += `\n**Summary:**\n`;
+      response += `• Total Payments: ${result.data.length}\n`;
+      response += `• Total Salary Amount: ${totalSalaries.toLocaleString()} RWF\n`;
+      response += `• Total Kozi Commission: ${totalCommissions.toLocaleString()} RWF\n\n`;
+      response += `Would you like me to generate a detailed payment report or send notifications to employers?`;
+      
+      return response;
     }
     
     // Mark payment as paid
@@ -1223,7 +1394,7 @@ async function chat(req, res) {
 
     if (intent === 'PAYMENT') {
       // Handle payment queries with real data
-      const paymentResponse = await handlePayment(text);
+      const paymentResponse = await handlePayment(text, apiToken);
       await streamText(res, paymentResponse);
       await saveAssistantMessage(session.id, paymentResponse);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

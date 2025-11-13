@@ -173,9 +173,9 @@ function calculateUpcomingPaymentsFromPayroll(payrollData) {
         window: '14 days'
       };
     } else if (allPayments.length > 0) {
-      console.log('[PAYMENT] ℹ️  No payments in 14-day window, showing next', Math.min(allPayments.length, 5), 'upcoming payments');
-      // Show next 5 upcoming payments (even if they're beyond 14 days)
-      const nextPayments = allPayments.slice(0, 5);
+      console.log('[PAYMENT] ℹ️  No payments in 14-day window, showing all', allPayments.length, 'upcoming payments');
+      // Show ALL upcoming payments (even if they're beyond 14 days)
+      const nextPayments = allPayments; // Removed .slice(0, 5) limit
       return {
         success: true,
         data: nextPayments,

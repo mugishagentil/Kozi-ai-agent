@@ -156,14 +156,18 @@ async function handleStatistics(userMsg, apiToken = null) {
   try {
     const lowerMsg = userMsg.toLowerCase();
     
-    // Check if user wants platform statistics
-    if (lowerMsg.includes('statistics') || 
+    // Fetch statistics data first if any statistics-related query is detected
+    const isStatisticsQuery = lowerMsg.includes('statistics') || 
         lowerMsg.includes('insights') || 
         lowerMsg.includes('dashboard') ||
         lowerMsg.includes('platform insights') ||
         lowerMsg.includes('show me platform') ||
         lowerMsg.includes('platform stats') ||
-        (lowerMsg.includes('how many') && (lowerMsg.includes('provider') || lowerMsg.includes('seeker') || lowerMsg.includes('job') || lowerMsg.includes('agent')))) {
+        (lowerMsg.includes('how many') && (lowerMsg.includes('provider') || lowerMsg.includes('seeker') || lowerMsg.includes('job') || lowerMsg.includes('agent')));
+    
+    if (!isStatisticsQuery) {
+      return null;
+    }
       
       const result = await fetchDashboardStatistics(apiToken);
       
@@ -173,37 +177,86 @@ async function handleStatistics(userMsg, apiToken = null) {
       
       const stats = result.data;
       
-      // Format the response similar to dashboard
+    // Handle specific "how many" questions with direct answers
+    if (lowerMsg.includes('how many')) {
+      // Job Providers
+      if (lowerMsg.includes('job provider') || lowerMsg.includes('employer')) {
+        if (lowerMsg.includes('approved')) {
+          return `We currently have **${stats.approvedProviders || 0}** approved job providers on the platform.`;
+        }
+        return `We currently have **${stats.jobProviders || 0}** job providers registered on the platform.`;
+      }
+      
+      // Job Seekers
+      if (lowerMsg.includes('job seeker') || lowerMsg.includes('seeker')) {
+        if (lowerMsg.includes('approved')) {
+          return `We currently have **${stats.approvedSeekers || 0}** approved job seekers on the platform.`;
+        }
+        if (lowerMsg.includes('hired')) {
+          return `We currently have **${stats.hiredSeekers || 0}** hired job seekers on the platform.`;
+        }
+        return `We currently have **${stats.jobSeekers || 0}** job seekers registered on the platform.`;
+      }
+      
+      // Jobs
+      if (lowerMsg.includes('job') && !lowerMsg.includes('seeker') && !lowerMsg.includes('provider')) {
+        if (lowerMsg.includes('active')) {
+          return `We currently have **${stats.activeJobs || 0}** active jobs on the platform.`;
+        }
+        if (lowerMsg.includes('unpublished')) {
+          return `We currently have **${stats.unpublishedJobs || 0}** unpublished jobs.`;
+        }
+        if (lowerMsg.includes('this week') || lowerMsg.includes('posted')) {
+          return `**${stats.jobsPostedThisWeek || 0}** jobs were posted this week.`;
+        }
+        return `We currently have **${stats.allJobs || 0}** total jobs on the platform.`;
+      }
+      
+      // Agents
+      if (lowerMsg.includes('agent')) {
+        return `We currently have **${stats.agents || 0}** agents on the platform.`;
+      }
+    }
+    
+    // Show full table only for general statistics/insights requests
       let response = `📊 **Platform Insights and Statistics**\n\n`;
       response += `Here are the key statistics about Kozi:\n\n`;
       
-      response += `**User Statistics:**\n`;
-      response += `• All Job Providers: **${stats.jobProviders || 0}**\n`;
-      response += `• All Job Seekers: **${stats.jobSeekers || 0}**\n`;
-      response += `• Approved Seekers: **${stats.approvedSeekers || 0}**\n`;
-      response += `• Approved Providers: **${stats.approvedProviders || 0}**\n`;
-      response += `• Hired Seekers: **${stats.hiredSeekers || 0}**\n`;
-      response += `• All Agents: **${stats.agents || 0}**\n\n`;
-      
-      response += `**Job Statistics:**\n`;
-      response += `• All Jobs: **${stats.allJobs || 0}**\n`;
-      response += `• Active Jobs: **${stats.activeJobs || 0}**\n`;
-      response += `• Unpublished Jobs: **${stats.unpublishedJobs || 0}**\n`;
-      response += `• Jobs Posted This Week: **${stats.jobsPostedThisWeek || 0}**\n\n`;
-      
-      response += `**Today's Activity:**\n`;
-      response += `• Today's Provider Registrations: **${stats.todayProviderRegistrations || 0}**\n`;
-      response += `• Today's Job Seeker Registrations: **${stats.todayRegistrations || 0}**\n\n`;
-      
+    // User Statistics Table
+    response += `### 👥 User Statistics\n\n`;
+    response += `| Category | Count |\n`;
+    response += `|---------|-------|\n`;
+    response += `| All Job Providers | ${stats.jobProviders || 0} |\n`;
+    response += `| All Job Seekers | ${stats.jobSeekers || 0} |\n`;
+    response += `| Approved Seekers | ${stats.approvedSeekers || 0} |\n`;
+    response += `| Approved Providers | ${stats.approvedProviders || 0} |\n`;
+    response += `| Hired Seekers | ${stats.hiredSeekers || 0} |\n`;
+    response += `| All Agents | ${stats.agents || 0} |\n\n`;
+    
+    // Job Statistics Table
+    response += `### 💼 Job Statistics\n\n`;
+    response += `| Category | Count |\n`;
+    response += `|---------|-------|\n`;
+    response += `| All Jobs | ${stats.allJobs || 0} |\n`;
+    response += `| Active Jobs | ${stats.activeJobs || 0} |\n`;
+    response += `| Unpublished Jobs | ${stats.unpublishedJobs || 0} |\n`;
+    response += `| Jobs Posted This Week | ${stats.jobsPostedThisWeek || 0} |\n\n`;
+    
+    // Today's Activity Table
+    response += `### 📈 Today's Activity\n\n`;
+    response += `| Category | Count |\n`;
+    response += `|---------|-------|\n`;
+    response += `| Today's Provider Registrations | ${stats.todayProviderRegistrations || 0} |\n`;
+    response += `| Today's Job Seeker Registrations | ${stats.todayRegistrations || 0} |\n\n`;
+    
+    response += `---\n\n`;
       response += `✅ **Next Steps:** You can ask me to:\n`;
       response += `• Show specific statistics (e.g., "How many job providers do we have?")\n`;
       response += `• Filter data by location or category\n`;
       response += `• View trends over time\n`;
       
       return response;
-    }
     
-    return null;
   } catch (error) {
     console.error('[STATISTICS] Error:', error);
     return `❌ **Error Processing Statistics Request**\n\n${error.message}`;
@@ -259,19 +312,60 @@ async function handlePayments(userMsg) {
 }
 
 // ============ EMAIL HANDLER ============
-async function handleEmail(userMsg) {
+async function handleEmail(userMsg, sessionId = null) {
   try {
     const lowerMsg = userMsg.toLowerCase();
     
     // Regex to detect email addresses
     const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
-    const hasEmailAddress = emailPattern.test(userMsg);
+    let hasEmailAddress = emailPattern.test(userMsg);
+    let emailFromContext = null;
+    
+    // If no email in current message but message uses pronouns, look in recent conversation
+    if (!hasEmailAddress && sessionId && (lowerMsg.includes('him') || lowerMsg.includes('her') || lowerMsg.includes('them') || lowerMsg.includes('send email'))) {
+      console.log('[EMAIL] No email in message, checking conversation history for context');
+      console.log('[EMAIL] Session ID:', sessionId);
+      console.log('[EMAIL] Current message:', userMsg);
+      try {
+        // Get last 10 messages from conversation (increased to find more context)
+        const recentMessages = await prisma.ChatMessage.findMany({
+          where: { sessionId: Number(sessionId) },
+          orderBy: { timestamp: 'desc' },
+          take: 10,
+          select: { content: true, role: true, timestamp: true }
+        });
+        
+        console.log('[EMAIL] Found', recentMessages.length, 'recent messages');
+        
+        // Look through recent messages for email addresses
+        for (const msg of recentMessages) {
+          const match = msg.content.match(emailPattern);
+          if (match && match[0]) {
+            emailFromContext = match[0];
+            console.log('[EMAIL] ✅ Found email from context:', emailFromContext);
+            // Prepend "send email to [email]" to make it explicit for email service
+            userMsg = `send email to ${emailFromContext} ${userMsg.replace(/^then\s+/i, '').replace(/send\s+(him|her|them)\s+email/i, '')}`;
+            hasEmailAddress = true;
+            console.log('[EMAIL] Enhanced message:', userMsg);
+            break;
+          }
+        }
+        
+        if (!emailFromContext) {
+          console.log('[EMAIL] ⚠️ No email found in recent conversation history');
+        }
+      } catch (err) {
+        console.error('[EMAIL] Failed to fetch conversation history:', err);
+      }
+    }
     
     // Check if user wants to send email (not just read Gmail)
     const isSendRequest = lowerMsg.includes('send email') || 
                          lowerMsg.includes('sent email') ||
                          lowerMsg.includes('send an email') ||
                          lowerMsg.includes('email to') ||
+                         lowerMsg.includes('send him') ||
+                         lowerMsg.includes('send her') ||
                          lowerMsg.includes('tell him') ||
                          lowerMsg.includes('tell her') ||
                          lowerMsg.includes('inform') ||
@@ -340,9 +434,9 @@ Please check your email configuration or try again.`;
 }
 
 // ============ GMAIL HANDLER (Legacy - kept for backward compatibility) ============
-async function handleGmail(userMsg) {
+async function handleGmail(userMsg, sessionId = null) {
   // Redirect to handleEmail for consistency
-  return handleEmail(userMsg);
+  return handleEmail(userMsg, sessionId);
 }
 
 // ============ DATABASE HANDLER ============
@@ -1096,52 +1190,52 @@ async function handlePayment(userMsg, apiToken = null) {
       if (result.window !== '14 days' && result.message) {
         response += `ℹ️  ${result.message}\n\n`;
       }
+      
+      // Display as table
+      response += `| # | Employee | Employer | Position | Salary (RWF) | Commission (RWF) | Due Date | Status |\n`;
+      response += `|---|----------|----------|----------|--------------|------------------|----------|--------|\n`;
+      
       result.data.forEach((payment, idx) => {
         const employeeName = payment.job_seeker ? 
           `${payment.job_seeker.first_name} ${payment.job_seeker.last_name}` : 
-          'Unknown Employee';
+          'Unknown';
         const employerName = payment.employer ? 
           payment.employer.company_name : 
-          'Unknown Employer';
+          'Unknown';
         
-        response += `${idx + 1}. **${employeeName}** (${employerName})\n`;
-        response += `   💼 Position: ${payment.job_title || 'Not specified'}\n`;
-        response += `   💵 Salary: ${payment.amount ? payment.amount.toLocaleString() + ' RWF' : 'Not specified'}\n`;
+        const salary = payment.amount ? payment.amount.toLocaleString() : 'N/A';
+        const commission = payment.commission ? payment.commission.toLocaleString() : 'N/A';
         
-        // Show Kozi commission if available
-        if (payment.commission) {
-          response += `   💎 Kozi Commission (18%): ${payment.commission.toLocaleString()} RWF\n`;
-        }
-        
-        // Show due date with days until payment
+        // Calculate days until payment
         const dueDate = new Date(payment.due_date);
         const dueDateStr = dueDate.toLocaleDateString();
         const daysUntil = payment.days_until !== undefined ? payment.days_until : 
           Math.ceil((dueDate - new Date()) / (1000 * 60 * 60 * 24));
         
+        let dueDateDisplay = dueDateStr;
         if (daysUntil === 0) {
-          response += `   📅 Due Date: ${dueDateStr} ⚠️ **DUE TODAY**\n`;
+          dueDateDisplay += ' (TODAY)';
         } else if (daysUntil === 1) {
-          response += `   📅 Due Date: ${dueDateStr} (Tomorrow)\n`;
+          dueDateDisplay += ' (Tomorrow)';
         } else if (daysUntil < 0) {
-          response += `   📅 Due Date: ${dueDateStr} 🔴 **OVERDUE by ${Math.abs(daysUntil)} days**\n`;
+          dueDateDisplay += ` (OVERDUE ${Math.abs(daysUntil)}d)`;
         } else {
-          response += `   📅 Due Date: ${dueDateStr} (in ${daysUntil} days)\n`;
+          dueDateDisplay += ` (${daysUntil}d)`;
         }
         
-        response += `   🏠 Accommodation: ${payment.accommodation || 'Not specified'}\n`;
-        response += `   📍 Address: ${payment.address || 'Not specified'}\n`;
-        response += `   📊 Status: ${payment.status}\n\n`;
+        response += `| ${idx + 1} | ${employeeName} | ${employerName} | ${payment.job_title || 'N/A'} | ${salary} | ${commission} | ${dueDateDisplay} | ${payment.status || 'pending'} |\n`;
       });
       
       // Calculate totals
       const totalSalaries = result.data.reduce((sum, p) => sum + (p.amount || 0), 0);
       const totalCommissions = result.data.reduce((sum, p) => sum + (p.commission || 0), 0);
       
-      response += `\n**Summary:**\n`;
-      response += `• Total Payments: ${result.data.length}\n`;
-      response += `• Total Salary Amount: ${totalSalaries.toLocaleString()} RWF\n`;
-      response += `• Total Kozi Commission: ${totalCommissions.toLocaleString()} RWF\n\n`;
+      response += `\n### 📊 Summary\n\n`;
+      response += `| Metric | Value |\n`;
+      response += `|--------|-------|\n`;
+      response += `| Total Payments | ${result.data.length} |\n`;
+      response += `| Total Salary Amount | ${totalSalaries.toLocaleString()} RWF |\n`;
+      response += `| Total Kozi Commission | ${totalCommissions.toLocaleString()} RWF |\n\n`;
       response += `Would you like me to generate a detailed payment report or send notifications to employers?`;
       
       return response;
@@ -1400,8 +1494,8 @@ async function chat(req, res) {
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     } else if (intent === 'EMAIL') {
-      // Handle email queries (send or manage Gmail)
-      const emailResponse = await handleEmail(text);
+      // Handle email queries (send or manage Gmail) - pass session ID for context
+      const emailResponse = await handleEmail(text, session.id);
       await streamText(res, emailResponse);
       await saveAssistantMessage(session.id, emailResponse);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

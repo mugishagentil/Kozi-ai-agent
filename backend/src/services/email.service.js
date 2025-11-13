@@ -135,63 +135,66 @@ Return ONLY the JSON object, no other text.`;
       // Extract recipient name from email if possible
       const recipientName = recipient ? recipient.split('@')[0] : 'Recipient';
       
-      const prompt = `You are a professional administrative assistant writing formal business emails for Kozi platform.
+      const prompt = `You are an executive administrative assistant at Kozi, a professional employment platform in Rwanda. You write formal, polished business correspondence.
 
-TASK: Transform this brief message into a COMPLETE, formal, professional email body.
+TASK: Transform this informal message into a COMPLETE, PROFESSIONAL, FORMAL business email.
 
 BRIEF MESSAGE: "${context}"
 
-Recipient Name: ${recipientName}
-Subject: ${subject || 'No subject'}
+Recipient: ${recipientName}
+Subject: ${subject || 'Business Communication'}
 
-CRITICAL REQUIREMENTS - YOU MUST:
-1. EXPAND the brief message significantly - DO NOT just repeat it
-2. Add professional context, formality, and helpful details
-3. Make the email at least 3-4 well-structured paragraphs
-4. Include specific information from the brief message but present it formally
-5. Add relevant details (e.g., for interviews: what to bring, arrival instructions, etc.)
-6. Use formal business language throughout
-7. Start with "Dear ${recipientName},"
-8. End with "Best," followed by "Kozi Team" and then "Address: Kicukiro-Kagarama" and "Contact: +250 788 719 678"
-
-EXAMPLE OF PROPER TRANSFORMATION:
-
-BRIEF MESSAGE: "he has an interview tomorrow 10:00 AM"
-
-CORRECT EMAIL:
-"Dear ${recipientName},
-
-We are pleased to inform you that you have been scheduled for an interview tomorrow at 10:00 AM.
-
-Please arrive 10 minutes early to allow time for check-in. We recommend bringing your identification documents, an updated copy of your resume, and any relevant certificates or portfolio items that showcase your skills and experience.
-
-The interview will help us better understand your qualifications and how you might contribute to our team. If you have any questions or need to reschedule, please contact us at your earliest convenience.
-
-We look forward to meeting with you and learning more about your background.
-
-Best,
+MANDATORY REQUIREMENTS:
+1. Use PERFECT grammar and formal business English
+2. EXPAND the brief message into 3-4 well-structured paragraphs (minimum 150 words)
+3. Replace casual phrases with professional language:
+   - "we hit over X" → "we are pleased to report that we have successfully reached"
+   - "we should have meeting" → "we would like to schedule a meeting"
+   - "tell him" → "inform the recipient"
+4. Include specific, helpful details relevant to the message
+5. Maintain a respectful, professional tone throughout
+6. Use proper salutation: "Dear ${recipientName},"
+7. Use proper closing: "Best regards," OR "Sincerely," followed by signature block
+8. Include complete signature:
 Kozi Team
 
 Address: Kicukiro-Kagarama
-Contact: +250 788 719 678"
+   Phone: +250 788 719 678
+   Email: info@kozi.rw
 
-WRONG (DO NOT DO THIS):
+EXAMPLE TRANSFORMATION:
+
+BRIEF MESSAGE: "we hit over 350 job provider and we should have meeting next week"
+
+❌ WRONG (too casual):
+"Dear ${recipientName}, we hit over 350 job provider and we should have meeting next week..."
+
+✅ CORRECT (professional):
 "Dear ${recipientName},
-he has an interview tomorrow 10:00 AM
-Best,
+
+I am writing to share some excellent news regarding Kozi's continued growth and success. We are pleased to report that our platform has successfully reached a significant milestone of over 350 registered job providers. This achievement represents substantial progress in our mission to connect job seekers with quality employment opportunities across Rwanda.
+
+In light of this achievement and to discuss our strategic direction moving forward, we would like to schedule a meeting with you next week. This meeting will provide an opportunity to review our current performance metrics, discuss expansion strategies, and plan our next phase of growth.
+
+We believe your insights and participation will be valuable as we continue to scale our operations. Please let us know your availability for next week, and we will coordinate a suitable time for all parties.
+
+If you have any questions prior to our meeting or need any additional information, please do not hesitate to contact us.
+
+Best regards,
 Kozi Team
 
 Address: Kicukiro-Kagarama
-Contact: +250 788 719 678"
+Phone: +250 788 719 678
+Email: info@kozi.rw"
 
-Now generate a similar professional email for the brief message provided. Remember:
-- EXPAND the message significantly
-- Use formal language
-- Add helpful context and details
-- Make it at least 3-4 paragraphs
-- Be professional and complete
+Now transform the brief message above into a similarly professional email. Remember:
+- Perfect grammar and spelling
+- Formal business language
+- Well-structured paragraphs
+- Specific, helpful details
+- Professional tone throughout
 
-Return ONLY the complete email body, no subject line.`;
+Return ONLY the email body (no subject line).`;
 
       const body = await generateText(prompt, { 
         temperature: 0.5, // Slightly higher for more creative expansion
@@ -211,41 +214,47 @@ Return ONLY the complete email body, no subject line.`;
         formattedBody = `Dear ${recipientName},\n\n${formattedBody}`;
       }
       
-      // Ensure footer is present with new format
-      // Remove old footer format if present
-      formattedBody = formattedBody.replace(/\n\nBest regards,\s*\nKozi Admin Team.*$/gi, '');
-      formattedBody = formattedBody.replace(/\n\nBest regards,\s*\nKozi Team.*$/gi, '');
-      formattedBody = formattedBody.replace(/\n\nBest,\s*\nKozi Team.*$/gi, '');
+      // Ensure proper signature block is present
+      const hasProperSignature = (formattedBody.includes('Best regards,') || formattedBody.includes('Sincerely,')) && 
+                                  formattedBody.includes('Kozi Team') &&
+                                  formattedBody.includes('Kicukiro-Kagarama');
       
-      const hasNewFooter = formattedBody.includes('Best,') && 
-                           formattedBody.includes('Kozi Team') &&
-                           formattedBody.includes('Address:') &&
-                           formattedBody.includes('Contact:');
-      
-      if (!hasNewFooter) {
-        // Add new footer format
-        formattedBody += '\n\nBest,\nKozi Team\n\nAddress: Kicukiro-Kagarama\nContact: +250 788 719 678';
+      if (!hasProperSignature) {
+        // Remove any incomplete or old signatures
+        formattedBody = formattedBody.replace(/\n\nBest regards,\s*\nKozi.*$/gi, '');
+        formattedBody = formattedBody.replace(/\n\nSincerely,\s*\nKozi.*$/gi, '');
+        formattedBody = formattedBody.replace(/\n\nBest,\s*\nKozi.*$/gi, '');
+        
+        // Add proper signature block
+        formattedBody += '\n\nBest regards,\nKozi Team\n\nAddress: Kicukiro-Kagarama\nPhone: +250 788 719 678\nEmail: info@kozi.rw';
       }
       
       // Validate minimum length - if too short, regenerate with more explicit instructions
       if (formattedBody.length < 200 || formattedBody.split('\n').length < 5) {
         console.warn('[EmailService] Email body too short, regenerating with more explicit instructions');
-        const retryPrompt = `The previous email was too brief. Generate a MUCH MORE DETAILED professional email.
+        const retryPrompt = `The previous email was too brief and unprofessional. Generate a COMPREHENSIVE, FORMAL business email.
 
 BRIEF MESSAGE: "${context}"
 
 Recipient: ${recipientName}
 Subject: ${subject}
 
-REQUIREMENTS:
-- The email MUST be at least 4-5 paragraphs
-- MUST expand the brief message significantly with professional details
-- Include helpful context and information
-- Use formal business language
-- Start with "Dear ${recipientName},"
-- End with "Best,\nKozi Team\n\nAddress: Kicukiro-Kagarama\nContact: +250 788 719 678"
+STRICT REQUIREMENTS:
+1. Minimum 4-5 paragraphs (at least 200 words)
+2. Use PERFECT grammar and formal business English
+3. SIGNIFICANTLY EXPAND the brief message with professional context
+4. Include specific, relevant details
+5. Use formal business language throughout
+6. Proper greeting: "Dear ${recipientName},"
+7. Professional closing: "Best regards," OR "Sincerely,"
+8. Complete signature block:
+   Kozi Team
+   
+   Address: Kicukiro-Kagarama
+   Phone: +250 788 719 678
+   Email: info@kozi.rw
 
-DO NOT just repeat the brief message. EXPAND it into a complete, formal email.
+DO NOT just repeat the brief message. Transform it into a polished, professional business email with proper structure, grammar, and formality.
 
 Return ONLY the complete email body.`;
         
@@ -257,18 +266,25 @@ Return ONLY the complete email body.`;
         if (retryBody && retryBody.trim().length > formattedBody.length) {
           formattedBody = retryBody.trim().replace(/^["']|["']$/g, '');
           
-          // Re-add greeting and footer if needed
+          // Re-add greeting if needed
           if (!formattedBody.toLowerCase().startsWith('dear') && 
               !formattedBody.toLowerCase().startsWith('hello')) {
             formattedBody = `Dear ${recipientName},\n\n${formattedBody}`;
           }
-          // Remove old footer if present
-          formattedBody = formattedBody.replace(/\n\nBest regards,\s*\nKozi Admin Team.*$/gi, '');
-          formattedBody = formattedBody.replace(/\n\nBest regards,\s*\nKozi Team.*$/gi, '');
           
-          // Add new footer format
-          if (!formattedBody.includes('Best,') || !formattedBody.includes('Kozi Team')) {
-            formattedBody += '\n\nBest,\nKozi Team\n\nAddress: Kicukiro-Kagarama\nContact: +250 788 719 678';
+          // Ensure proper signature block
+          const hasSignature = (formattedBody.includes('Best regards,') || formattedBody.includes('Sincerely,')) && 
+                               formattedBody.includes('Kozi Team') &&
+                               formattedBody.includes('Kicukiro-Kagarama');
+          
+          if (!hasSignature) {
+            // Remove incomplete signatures
+            formattedBody = formattedBody.replace(/\n\nBest regards,\s*\nKozi.*$/gi, '');
+            formattedBody = formattedBody.replace(/\n\nSincerely,\s*\nKozi.*$/gi, '');
+            formattedBody = formattedBody.replace(/\n\nBest,\s*\nKozi.*$/gi, '');
+            
+            // Add proper signature block
+            formattedBody += '\n\nBest regards,\nKozi Team\n\nAddress: Kicukiro-Kagarama\nPhone: +250 788 719 678\nEmail: info@kozi.rw';
           }
         }
       }
@@ -297,11 +313,12 @@ ${expandedContext}
 
 If you have any questions or need further assistance, please do not hesitate to contact us.
 
-Best,
+Best regards,
 Kozi Team
 
 Address: Kicukiro-Kagarama
-Contact: +250 788 719 678`;
+Phone: +250 788 719 678
+Email: info@kozi.rw`;
     }
   }
 

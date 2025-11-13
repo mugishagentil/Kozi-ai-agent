@@ -946,6 +946,48 @@ function formatMessage(message = '') {
 
   // --- Markdown-like syntax fixes ---
 
+  // Handle markdown tables FIRST (before other processing)
+  formatted = formatted.replace(
+    /(\|.+\|\n)+/g,
+    (match) => {
+      const lines = match.trim().split('\n')
+      if (lines.length < 2) return match
+      
+      // Parse table
+      const rows = lines.map(line => 
+        line.split('|').map(cell => cell.trim()).filter(cell => cell)
+      )
+      
+      // Check if second row is separator (contains only dashes and pipes)
+      const hasSeparator = rows[1] && rows[1].every(cell => /^[-:]+$/.test(cell))
+      
+      if (!hasSeparator) return match
+      
+      // Build HTML table
+      let html = '<div class="table-wrapper" style="overflow-x: auto; margin: 1rem 0; max-width: 100%;"><table class="markdown-table" style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; table-layout: auto;">'
+      
+      // Header row
+      html += '<thead style="background-color: #f9fafb;"><tr>'
+      rows[0].forEach(cell => {
+        html += `<th style="padding: 0.4rem 0.5rem; text-align: left; font-weight: 600; border: 1px solid #e5e7eb; color: #374151; white-space: nowrap; font-size: 0.75rem; line-height: 1.3;">${cell}</th>`
+      })
+      html += '</tr></thead>'
+      
+      // Body rows (skip separator row at index 1)
+      html += '<tbody>'
+      for (let i = 2; i < rows.length; i++) {
+        html += '<tr style="border-bottom: 1px solid #e5e7eb;">'
+        rows[i].forEach(cell => {
+          html += `<td style="padding: 0.4rem 0.5rem; border: 1px solid #e5e7eb; color: #4b5563; font-size: 0.75rem; line-height: 1.3;">${cell}</td>`
+        })
+        html += '</tr>'
+      }
+      html += '</tbody></table></div>'
+      
+      return html
+    }
+  )
+
   // Handle markdown headings (###, ##, #) - FIRST process headings
   formatted = formatted.replace(/^###\s*(.+)$/gm, '<h3 class="large-font mt-4 mb-2 font-semibold text-pink-600">$1</h3>')
   formatted = formatted.replace(/^##\s*(.+)$/gm, '<h2 class="large-font mt-4 mb-2 font-semibold text-pink-600">$1</h2>')

@@ -486,7 +486,7 @@ const dislikeMessage = (message, index) => {
 }
 
 .message-content { 
-  max-width: 760px; 
+  max-width: 950px; 
   min-height: 0;
   width: fit-content; /* Make container fit content instead of expanding */
 }
@@ -513,7 +513,7 @@ const dislikeMessage = (message, index) => {
 /* Streaming AI responses - container should start small and expand as content arrives */
 .message.streaming .message-content {
   width: fit-content; /* Constrain width to content */
-  max-width: 760px; /* Allow expansion up to maximum */
+  max-width: 950px; /* Allow expansion up to maximum */
   transition: max-width 0.2s ease-out; /* Smooth expansion as content arrives */
 }
 
@@ -533,7 +533,7 @@ const dislikeMessage = (message, index) => {
   padding: 0.65rem 0.9rem; /* Normal padding */
   width: fit-content; /* Fit content width */
   display: inline-block; /* Allow width to grow naturally */
-  max-width: 760px; /* Maximum width it can expand to */
+  max-width: 950px; /* Maximum width it can expand to */
 }
 
 .user-message .message-text {
@@ -545,7 +545,7 @@ const dislikeMessage = (message, index) => {
   padding: 0.4rem 0.6rem !important;
   margin-left: auto !important;
   margin-right: 0 !important;
-  max-width: 760px !important;
+  max-width: 950px !important;
   display: inline-block !important;
   width: auto !important;
 }
@@ -584,6 +584,19 @@ const dislikeMessage = (message, index) => {
 .formatted-content .bullet-item { margin: .25rem 0; }
 .formatted-content .numbered-item { margin: .25rem 0; }
 .formatted-content .large-font { font-size: 1rem; }
+
+/* Table-specific styling - smaller font and tighter spacing for better fit */
+.formatted-content table {
+  font-size: 0.75rem; /* 12px - very compact for readability */
+}
+
+.formatted-content table th,
+.formatted-content table td {
+  font-size: 0.75rem; /* Ensure table cells also use smaller font */
+  padding: 0.4rem 0.5rem !important; /* Even tighter padding */
+  white-space: nowrap; /* Prevent text wrapping */
+  line-height: 1.3; /* Tighter line height */
+}
 
 /* Dark support */
 body.dark .chat-messages { background: #0f1115; }

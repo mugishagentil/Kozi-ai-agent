@@ -879,21 +879,11 @@ Generate ONLY the response message, no JSON:
         };
       }
 
-      // CRITICAL: Handle greetings directly - never fall back to OpenAI for greetings
+      // Let greetings fall through to be handled naturally by OpenAI
+      // No hardcoded responses - AI should be intelligent and contextual
       const lowerMessage = (userMessage || '').toLowerCase().trim();
-      const isGreeting = lowerMessage === 'hello' || lowerMessage === 'hi' || 
-                       lowerMessage.startsWith('hello') || lowerMessage.startsWith('hi');
-      
-      if (isGreeting) {
-        // Always handle greetings with employee-focused response
-        return {
-          type: 'message',
-          message: "Hi there! 😊 How can I assist you today with finding job opportunities? What type of work are you looking for?",
-          jobs: null
-        };
-      }
 
-      // CRITICAL: Handle "I need a job" directly - this is ALWAYS an employee query
+      // CRITICAL: Handle "I need a job" with clarification FIRST
       const wantsJob = lowerMessage.includes('job') && (
         lowerMessage.includes('need') || lowerMessage.includes('want') || 
         lowerMessage.includes('looking') || lowerMessage.includes('search')
@@ -911,7 +901,118 @@ Generate ONLY the response message, no JSON:
         this.conversationContext.lastJobSeekerIntent = true;
       }
 
-      // CRITICAL FIX: Detect general "show me available jobs" queries FIRST (before extracting filters)
+      // CRITICAL: Detect requests for job details FIRST before extracting filters
+      const detailRequestPatterns = [
+        /tell me (more )?about (that|the|this) (first|second|third|last|1st|2nd|3rd)? ?(job|position)/i,
+        /details? (about|of|for) (that|the|this) (first|second|third|last|1st|2nd|3rd)? ?(job|position)/i,
+        /(more|additional) (info|information|details?) (about|on) (that|the|this) (first|second|third|last|1st|2nd|3rd)? ?(job|position)/i,
+        /what (about|is) (that|the|this) (first|second|third|last|1st|2nd|3rd)? ?(job|position)/i,
+        /tell me about (that|the|this) (sales agent|sales representative|salesperson|bartender|chef|driver|security|construction|teacher|accountant|receptionist)/i,
+        /(give|show) me (more|additional)? ?(details?|info|information) (about|on|of|for) (that|the|this|job|position)/i,
+        /^tell me about (that|it|this)$/i,
+        /^(more|details?) (about|on) (that|it|this|the job)$/i
+      ];
+      
+      const isDetailRequest = detailRequestPatterns.some(pattern => pattern.test(userMessage));
+      
+      if (isDetailRequest && this.lastSearchResults && this.lastSearchResults.length > 0) {
+        console.log('[JobSeekerAgent] 🔍 Detail request detected for previously shown jobs');
+        
+        // Parse which job they're asking about
+        let jobIndex = 0; // default to first job
+        
+        if (/first|1st/i.test(userMessage)) jobIndex = 0;
+        else if (/second|2nd/i.test(userMessage)) jobIndex = 1;
+        else if (/third|3rd/i.test(userMessage)) jobIndex = 2;
+        else if (/last/i.test(userMessage)) jobIndex = this.lastSearchResults.length - 1;
+        
+        // Also check for job title mentions
+        const jobTitleMatch = userMessage.match(/(?:about|of|for)\s+(sales agent|sales representative|salesperson|bartender|chef|driver|security guard|construction worker|teacher|accountant|receptionist|nmp solutions|penta medicals|evergreen)/i);
+        if (jobTitleMatch) {
+          const searchTerm = jobTitleMatch[1].toLowerCase();
+          const foundIndex = this.lastSearchResults.findIndex(job => 
+            (job.job_title && job.job_title.toLowerCase().includes(searchTerm)) ||
+            (job.company_name && job.company_name.toLowerCase().includes(searchTerm))
+          );
+          if (foundIndex !== -1) jobIndex = foundIndex;
+        }
+        
+        const requestedJob = this.lastSearchResults[jobIndex];
+        
+        if (requestedJob) {
+          // Generate detailed job description
+          const details = `📋 **${requestedJob.job_title || 'Job Position'}** at **${requestedJob.company_name || 'Company'}**\n\n` +
+            `**Job Type:** ${requestedJob.employment_type || requestedJob.work_mode || 'Full-time'}\n` +
+            `**Deadline:** ${requestedJob.deadline_date ? new Date(requestedJob.deadline_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Not specified'}\n\n` +
+            `**Job Description:**\n${requestedJob.job_description || 'No detailed description available.'}\n\n` +
+            `${requestedJob.requirements ? `**Requirements:**\n${requestedJob.requirements}\n\n` : ''}` +
+            `${requestedJob.responsibilities ? `**Responsibilities:**\n${requestedJob.responsibilities}\n\n` : ''}` +
+            `${requestedJob.salary_range ? `**Salary Range:** ${requestedJob.salary_range}\n\n` : ''}` +
+            `**Interested?** Click "View Details" or "Apply" on the job card to proceed with your application!`;
+          
+          return {
+            type: 'job_details',
+            message: details,
+            job: this.formatJobForCard(requestedJob),
+            jobs: [this.formatJobForCard(requestedJob)]
+          };
+        }
+      }
+      
+      const filters = await this.extractFiltersFromQuery(userMessage, conversationHistory);
+      
+      // DEBUG: Log extracted filters
+      console.log('[JobSeekerAgent] 🔍 Extracted filters:', {
+        role: filters.role,
+        categoryName: filters.categoryName,
+        location: filters.location,
+        employmentType: filters.employmentType,
+        userMessage: lowerMessage
+      });
+      
+      // CRITICAL FIX: If they want a job but didn't specify ANY details, ASK for clarification
+      const isVagueJobRequest = wantsJob && 
+                                 !filters.categoryName && 
+                                 !filters.role && 
+                                 !filters.location &&
+                                 !filters.employmentType &&
+                                 (lowerMessage === 'i need a job' || 
+                                  lowerMessage === 'i need job' ||
+                                  lowerMessage === 'i want a job' ||
+                                  lowerMessage === 'i want job' ||
+                                  lowerMessage === 'i really need a job' ||
+                                  lowerMessage === 'i really need job' ||
+                                  lowerMessage === 'need a job' ||
+                                  lowerMessage === 'want a job' ||
+                                  lowerMessage === 'looking for a job' ||
+                                  lowerMessage === 'looking for job' ||
+                                  lowerMessage === 'find me a job' ||
+                                  lowerMessage === 'find me job' ||
+                                  lowerMessage.match(/^i (really )?(need|want|am looking for) (a )?job\.?$/i));
+      
+      console.log('[JobSeekerAgent] 🔍 Vague request check:', {
+        isVagueJobRequest,
+        wantsJob,
+        hasNoFilters: !filters.categoryName && !filters.role && !filters.location && !filters.employmentType,
+        lowerMessage
+      });
+      
+      if (isVagueJobRequest) {
+        // Ask clarifying questions instead of showing random jobs
+        await this.loadCategories();
+        const popularCategories = ['Sales', 'Driver', 'Construction Worker', 'Security Guard', 
+                                   'Teacher', 'Accountant', 'Chef', 'Housekeeper', 'IT/Technology'];
+        const categoryList = popularCategories.map((cat, idx) => `${idx + 1}. ${cat}`).join('\n');
+        
+        return {
+          type: 'clarification',
+          message: `I'd love to help you find the perfect job! 😊\n\nTo show you the most relevant opportunities, could you tell me what type of work you're interested in?\n\nHere are some popular categories:\n\n${categoryList}\n\nOr feel free to describe any other type of work you're looking for! I can search for specific roles, locations, or job types.`,
+          data: [],
+          jobs: []
+        };
+      }
+      
+      // CRITICAL: Handle general "show me available jobs" queries FIRST (before extracting filters)
       const isGeneralJobRequest = (
         lowerMessage.includes('show me available jobs') ||
         lowerMessage.includes('show me jobs') ||
@@ -922,42 +1023,12 @@ Generate ONLY the response message, no JSON:
         (lowerMessage.includes('jobs') && lowerMessage.includes('available'))
       );
 
-      const filters = await this.extractFiltersFromQuery(userMessage, conversationHistory);
-      
       // If it's a general request, clear any incorrectly extracted filters
       if (isGeneralJobRequest) {
         filters.role = null;
         filters.categoryName = null;
         filters.categoryId = null;
         filters.searchType = 'general';
-      }
-      
-      // CRITICAL: If user says "I need a job", always search - don't ask more questions
-      if (wantsJob && !filters.categoryName && !filters.role && !isGeneralJobRequest) {
-        // They want a job but didn't specify type - show general jobs or ask ONE clarifying question
-        filters.searchType = filters.searchType || 'general';
-        // But be proactive - try to extract any job type mentioned
-        if (lowerMessage.includes('sales')) {
-          filters.role = 'sales';
-        } else if (lowerMessage.includes('driver')) {
-          filters.role = 'driver';
-        } else if (lowerMessage.includes('construction')) {
-          filters.role = 'construction';
-        }
-      }
-      
-      // If user mentions a job type/role, ensure we search even with minimal filters
-      const hasJobMention = lowerMessage.includes('job') || lowerMessage.includes('position') || 
-                           lowerMessage.includes('work') || lowerMessage.includes('need') ||
-                           filters.categoryName || filters.role;
-      
-      // If user explicitly mentions a job type, search immediately with whatever we have
-      if (hasJobMention && (filters.categoryName || filters.role || lowerMessage.includes('sales') || 
-          lowerMessage.includes('driver') || lowerMessage.includes('construction') || 
-          lowerMessage.includes('teacher') || lowerMessage.includes('accountant') ||
-          lowerMessage.includes('receptionist') || lowerMessage.includes('security'))) {
-        // Force a search even if filters are minimal
-        filters.searchType = filters.searchType || 'general';
       }
       
       if (filters.requestCategories || filters.searchType === 'categories_list' || userMessage.toLowerCase().includes('categories')) {
@@ -1054,6 +1125,30 @@ Generate ONLY the response message, no JSON:
       }
 
       if (showingCount === 0) {
+        this.hasActiveSearch = false;
+        
+        const searchedTerm = filters.categoryName || filters.role || '';
+        const locationText = filters.location ? ` in ${filters.location}` : '';
+        
+        // Generate user-friendly no results message with actionable steps
+        let noResultsMessage = `I couldn't find any ${searchedTerm}${locationText} jobs right now. 😔\n\n`;
+        noResultsMessage += `Let's find you something! Try:\n`;
+        noResultsMessage += `1. **Broaden your search** - try a wider location or related job types\n`;
+        noResultsMessage += `2. **Remove some filters** - search without specific requirements\n`;
+        noResultsMessage += `3. **Try related categories** - similar roles might be available\n`;
+        noResultsMessage += `4. **Check back later** - new jobs are posted regularly\n\n`;
+        noResultsMessage += `Tell me what type of work you're most interested in and I'll help refine the search!`;
+        
+        return { 
+          type: 'no_results', 
+          data: [], 
+          jobs: [], 
+          message: noResultsMessage
+        };
+      }
+      
+      // Keep the existing AI suggestion logic as backup
+      if (false && showingCount === 0) {
         this.hasActiveSearch = false;
         
         const searchedTerm = filters.categoryName || filters.role || '';

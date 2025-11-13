@@ -12,6 +12,53 @@ const { JobSeekerAgent, APIError, ValidationError } = require('../../utils/Jobse
 
 const agentInstances = new Map();
 
+// User-friendly error messages
+const FRIENDLY_ERROR_MESSAGES = {
+  API_ERROR: `I'm having trouble connecting to our services right now. 😔
+
+Here's what you can do:
+1. **Refresh the page** and try again
+2. **Wait a moment** and retry
+3. If it persists, contact support:
+   • Email: info@kozi.rw
+   • Phone: +250 788 719 678
+
+We're here to help! 😊`,
+
+  NO_RESULTS: `I couldn't find any jobs matching those exact criteria. 😔
+
+Let's find you something! Try:
+1. **Broaden your search** - try a wider location or related job types
+2. **Remove some filters** to see more opportunities
+3. **Tell me more** about what you're looking for and I'll help refine the search
+
+What would you like to do?`,
+
+  SEARCH_ERROR: `I couldn't complete that search right now.
+
+Let's try:
+1. **Simplifying your search** (use fewer filters)
+2. **Refreshing the page**
+3. **Contacting support** if this continues: info@kozi.rw or +250 788 719 678
+
+What would you like to do?`,
+
+  AUTH_ERROR: `Your session has expired. 😔
+
+Please **refresh the page** to continue. If you keep seeing this, contact support:
+• Email: info@kozi.rw
+• Phone: +250 788 719 678`,
+
+  NETWORK_ERROR: `I'm having trouble connecting right now.
+
+Quick fixes:
+1. **Check your internet connection**
+2. **Refresh the page**
+3. **Try again in a moment**
+
+Need immediate help? Call us: +250 788 719 678`,
+};
+
 function getAgentForSession(sessionId, apiToken = null) {
   if (!agentInstances.has(sessionId)) {
     const agent = new JobSeekerAgent('gpt-4-turbo', apiToken);
@@ -201,68 +248,39 @@ async function chat(req, res) {
 
     setupSSEHeaders(res);
 
-    // CRITICAL: Handle greetings FIRST - before agent processing
-    // This prevents any fallback to OpenAI that might confuse roles
-    const lowerMessage = latestMessage.toLowerCase().trim();
-    const normalizedMessage = lowerMessage.replace(/[^\w\s]/g, ''); // Remove punctuation for better matching
-    
-    // More comprehensive greeting detection
-    const isGreeting = 
-      normalizedMessage === 'hello' || 
-      normalizedMessage === 'hi' || 
-      normalizedMessage === 'hey' ||
-      normalizedMessage === 'hii' ||
-      normalizedMessage === 'helo' ||
-      normalizedMessage === 'heya' ||
-      lowerMessage === 'good morning' ||
-      lowerMessage === 'good afternoon' ||
-      lowerMessage === 'good evening' ||
-      lowerMessage === 'good night' ||
-      lowerMessage.startsWith('hello') ||
-      lowerMessage.startsWith('hi ') ||
-      lowerMessage.startsWith('hi!') ||
-      lowerMessage.startsWith('hi,') ||
-      lowerMessage.startsWith('hey ');
-    
-    console.log('🔍 [EMPLOYEE CHAT] Greeting check:', { 
-      original: latestMessage, 
-      lowerMessage, 
-      normalizedMessage, 
-      isGreeting 
-    });
-    
-    if (isGreeting) {
-      console.log('✅ [EMPLOYEE CHAT] Handling greeting directly - bypassing agent');
-      const greetingResponse = "Hi there! 😊 How can I assist you today with finding job opportunities? What type of work are you looking for?";
-      
-      // Save to database
-      await prisma.chatMessage.create({
-        data: { 
-          sessionId: Number(sessionId), 
-          role: 'assistant', 
-          content: greetingResponse 
-        },
-      });
+    // NOTE: Greetings are now handled by the agent or OpenAI for natural responses
+    // No more hardcoded greeting responses - let AI be intelligent!
 
-      // Stream the response
-      await streamResponseContent(greetingResponse, res, sessionId);
-      return;
-    }
+    // Get conversation history for agent
+    const conversationHistory = await prisma.chatMessage.findMany({
+      where: { sessionId: Number(sessionId) },
+      orderBy: { createdAt: 'asc' },
+      take: 10,
+    });
+
+    const historyForAgent = conversationHistory.map(m => ({
+      role: m.role,
+      content: m.content
+    }));
 
     // Get or create agent with API token
     const agent = getAgentForSession(Number(sessionId), apiToken);
     
-    // Try agent first
+    // Try agent first with conversation history
     let agentResult;
     try {
-      console.log('🔍 [EMPLOYEE CHAT] Processing message:', latestMessage.substring(0, 100));
-      agentResult = await agent.processMessage(latestMessage);
+      console.log('🔍 [EMPLOYEE CHAT] Processing message with history:', {
+        message: latestMessage.substring(0, 100),
+        historyLength: historyForAgent.length
+      });
+      agentResult = await agent.processMessage(latestMessage, historyForAgent);
       console.log('🔍 [EMPLOYEE CHAT] Agent result:', agentResult ? agentResult.type : 'null (falling back to OpenAI)');
     } catch (error) {
       // Handle authentication errors from the agent
       if (error.code === 'AUTH_ERROR' || error.code === 'NO_TOKEN') {
+        const friendlyMessage = FRIENDLY_ERROR_MESSAGES.AUTH_ERROR;
         res.write(`data: ${JSON.stringify({ 
-          content: 'Your session has expired. Please refresh the page and try again.',
+          content: friendlyMessage,
           error: true,
           code: error.code
         })}\n\n`);
@@ -329,6 +347,25 @@ async function chat(req, res) {
       return;
     }
 
+    // Handle job details requests
+    if (agentResult && agentResult.type === 'job_details') {
+      await prisma.chatMessage.create({
+        data: { 
+          sessionId: Number(sessionId), 
+          role: 'assistant', 
+          content: agentResult.message 
+        },
+      });
+
+      // Send the specific job card first if available
+      if (agentResult.job) {
+        res.write(`data: ${JSON.stringify({ jobs: [agentResult.job] })}\n\n`);
+      }
+
+      await streamResponseContent(agentResult.message, res, sessionId);
+      return;
+    }
+
     // Handle agent response with streaming
     if (agentResult && agentResult.message) {
       const responseContent = agentResult.message;
@@ -362,8 +399,26 @@ async function chat(req, res) {
     // Final fallback
     await handleOpenAIChat(session, latestMessage, isFirstUserMessage, res);
     
-  } catch (err) {
+    } catch (err) {
     console.error('POST /chat error:', err);
+    
+    // Determine friendly error message based on error type
+    let friendlyMessage = `I encountered an issue. 😔
+
+Here's what you can do:
+1. **Refresh the page** and try again
+2. **Rephrase your question** and ask again
+3. **Contact support** if this persists:
+   • Email: info@kozi.rw
+   • Phone: +250 788 719 678
+
+I'm here to help once you're back! 😊`;
+
+    if (err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
+      friendlyMessage = FRIENDLY_ERROR_MESSAGES.NETWORK_ERROR;
+    } else if (err instanceof APIError) {
+      friendlyMessage = FRIENDLY_ERROR_MESSAGES.API_ERROR;
+    }
     
     if (!res.headersSent) {
       if (err instanceof APIError) {
@@ -377,9 +432,9 @@ async function chat(req, res) {
       handleGenericError(err, res);
     } else {
       res.write(`data: ${JSON.stringify({ 
-        content: 'I apologize, but I encountered an error. Please try again or rephrase your question.',
+        content: friendlyMessage,
         error: true,
-        code: 'STREAM_ERROR'
+        code: err.code || 'STREAM_ERROR'
       })}\n\n`);
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
@@ -465,6 +520,31 @@ async function handleOpenAIChat(session, latestMessage, isFirstUserMessage, res)
   // Use employee prompt (different from employer)
   const systemPromptContent = PROMPT_TEMPLATES.employee(websiteContext, dbContext);
   
+  // Add accuracy warning based on context availability
+  let accuracyWarning = '';
+  if (!websiteContext && !dbContext) {
+    accuracyWarning = `
+⚠️ CRITICAL ACCURACY WARNING ⚠️
+You have NO context about Kozi platform features.
+DO NOT make up or guess ANY Kozi-specific information!
+
+If user asks about platform features, pricing, or processes:
+"I want to give you accurate information. For details about [topic]:
+• Check your dashboard
+• Contact support: info@kozi.rw or +250 788 719 678
+
+How else can I help you with your job search?"
+
+NEVER use generic job platform knowledge. Only Kozi-specific info or admit you don't know!
+`;
+  } else if (websiteContext && websiteContext.length < 5000) {
+    accuracyWarning = `
+⚠️ ACCURACY WARNING ⚠️
+You have LIMITED context about Kozi.
+Only answer what's clearly in the context. If uncertain, direct to support!
+`;
+  }
+  
   // CRITICAL: Add explicit role reminder at the start to override any context confusion
   // Make it context-aware based on message type
   let roleReminder = '';
@@ -539,7 +619,7 @@ NEVER mention employers, hiring, candidates, or posting jobs when helping employ
   });
 
   const messages = [
-    { role: 'system', content: roleReminder + systemPromptContent },
+    { role: 'system', content: accuracyWarning + roleReminder + systemPromptContent },
     ...previousMessages.reverse().slice(-6).map((m) => ({ role: m.role, content: m.content })), // Reduced from 10 to 6
     { role: 'user', content: latestMessage },
   ];

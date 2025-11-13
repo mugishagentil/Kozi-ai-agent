@@ -12,19 +12,87 @@ const { EmployerAgent, APIError, ValidationError } = require('../../utils/Employ
 
 const agentInstances = new Map();
 
-// Friendly error messages mapping
+// Friendly error messages mapping with actionable steps
 const ERROR_MESSAGES = {
   // Authentication errors
-  'NO_TOKEN': 'Your session has expired. Please refresh the page and try again.',
-  'AUTH_ERROR': 'Your session has expired. Please refresh the page and try again.',
-  'TOKEN_ERROR': 'There was an issue with your authentication. Please try again.',
-  'FETCH_ERROR': 'We\'re having trouble connecting to our services right now. Please try again in a moment.',
-  'NETWORK_ERROR': 'We\'re experiencing connectivity issues. Please check your internet connection and try again.',
-  'API_ERROR': 'Our search service is temporarily unavailable. Please try again shortly.',
-  'VALIDATION_ERROR': 'There was an issue with your request. Please check your input and try again.',
-  'SEARCH_ERROR': 'We encountered an issue while searching for candidates. Please try again.',
-  'CATEGORIES_UNAVAILABLE': 'Job categories are temporarily unavailable. Please try again later.',
-  'DEFAULT': 'Something went wrong. Please try again or contact support if the problem persists.'
+  'NO_TOKEN': `Your session has expired. 😔
+
+Please **refresh the page** to continue. If you keep seeing this:
+• Email: info@kozi.rw
+• Phone: +250 788 719 678`,
+
+  'AUTH_ERROR': `Your session has expired. 😔
+
+Please **refresh the page** to continue. If you keep seeing this:
+• Email: info@kozi.rw
+• Phone: +250 788 719 678`,
+
+  'TOKEN_ERROR': `There was an authentication issue. 
+
+Here's what to do:
+1. **Refresh the page**
+2. **Clear your browser cache** if needed
+3. Contact support if this persists: info@kozi.rw or +250 788 719 678`,
+
+  'FETCH_ERROR': `I'm having trouble connecting to our services right now. 😔
+
+Quick fixes:
+1. **Wait a moment** and try again
+2. **Refresh the page**
+3. If it persists, contact support: info@kozi.rw or +250 788 719 678`,
+
+  'NETWORK_ERROR': `I'm experiencing connectivity issues.
+
+Let's fix this:
+1. **Check your internet connection**
+2. **Refresh the page**
+3. **Try again in a moment**
+
+Need help? Call: +250 788 719 678`,
+
+  'API_ERROR': `Our candidate search service is temporarily unavailable.
+
+What to do:
+1. **Try again in a moment**
+2. **Refresh the page**
+3. Contact support: info@kozi.rw or +250 788 719 678
+
+We apologize for the inconvenience!`,
+
+  'VALIDATION_ERROR': `There was an issue with your request.
+
+Please:
+1. **Check your search criteria**
+2. **Try rephrasing** your request
+3. Contact support if needed: info@kozi.rw`,
+
+  'SEARCH_ERROR': `I couldn't complete that candidate search.
+
+Let's try:
+1. **Simplify your search** (use fewer filters)
+2. **Refresh the page**
+3. **Contact support**: info@kozi.rw or +250 788 719 678
+
+What would you like to do?`,
+
+  'CATEGORIES_UNAVAILABLE': `Job categories are temporarily unavailable.
+
+Options:
+1. **Try again in a moment**
+2. **Refresh the page**
+3. **Contact support**: info@kozi.rw
+
+I apologize for the inconvenience!`,
+
+  'DEFAULT': `Something went wrong. 😔
+
+Here's what to do:
+1. **Refresh the page** and try again
+2. **Contact support** if this persists:
+   • Email: info@kozi.rw
+   • Phone: +250 788 719 678
+
+We're here to help!`
 };
 
 function getFriendlyErrorMessage(error, defaultMessage = 'Something went wrong. Please try again.') {
@@ -239,6 +307,21 @@ async function chat(req, res) {
 
     // Handle clarification responses (no candidates, just asking for more info)
     if (agentResult && agentResult.type === 'clarification') {
+      await prisma.chatMessage.create({
+        data: { 
+          sessionId: Number(sessionId), 
+          role: 'assistant', 
+          content: agentResult.message 
+        },
+      });
+
+      const responseContent = agentResult.message;
+      await streamResponse(res, responseContent);
+      return;
+    }
+
+    // Handle hiring process information responses
+    if (agentResult && agentResult.type === 'hiring_process') {
       await prisma.chatMessage.create({
         data: { 
           sessionId: Number(sessionId), 
@@ -468,6 +551,25 @@ async function handleOpenAIChat(session, latestMessage, res) {
   }
 
   const systemPromptContent = PROMPT_TEMPLATES.employer(websiteContext, dbContext);
+  
+  // Add accuracy warning based on context availability
+  let accuracyWarning = '';
+  if (!websiteContext && !dbContext) {
+    accuracyWarning = `
+⚠️ CRITICAL ACCURACY WARNING ⚠️
+You have NO context about Kozi platform features.
+DO NOT make up or guess ANY Kozi-specific information!
+
+If employer asks about platform features, pricing, or processes:
+"I want to give you accurate information. For details about [topic]:
+• Check your employer dashboard
+• Contact support: info@kozi.rw or +250 788 719 678
+
+How else can I help you with hiring?"
+
+NEVER use generic recruitment platform knowledge. Only Kozi-specific info or admit you don't know!
+`;
+  }
 
   // Reduce number of messages for faster processing
   const previousMessages = await prisma.chatMessage.findMany({
@@ -477,7 +579,7 @@ async function handleOpenAIChat(session, latestMessage, res) {
   });
 
   const messages = [
-    { role: 'system', content: systemPromptContent },
+    { role: 'system', content: accuracyWarning + systemPromptContent },
     ...previousMessages.reverse().slice(-6).map((m) => ({ role: m.role, content: m.content })), // Reduced from 10 to 6
     { role: 'user', content: latestMessage },
   ];

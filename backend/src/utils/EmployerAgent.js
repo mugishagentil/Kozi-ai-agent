@@ -1,6 +1,41 @@
 const { ChatOpenAI } = require('@langchain/openai');
 const qs = require('querystring');
 
+// Comprehensive category synonym mapping for accurate job matching
+const CATEGORY_SYNONYMS = {
+  // SUPPORT WORKER CATEGORIES
+  'Pet Sitters': ['animal caretaker', 'dog walker', 'pet care assistant', 'pet nanny', 'animal sitter', 'pet groomer', 'pet sitter'],
+  'Other': ['general worker', 'casual worker', 'unclassified role', 'miscellaneous job', 'helper', 'labor support'],
+  'Customer Service Representative': ['client support agent', 'call center agent', 'helpdesk officer', 'customer care assistant', 'frontline support', 'service agent', 'customer service'],
+  'Data Entry Clerk': ['typist', 'data encoder', 'office clerk', 'record entry officer', 'admin assistant', 'computer operator', 'data entry'],
+  'Construction Worker': ['builder', 'mason', 'site laborer', 'construction assistant', 'bricklayer', 'general laborer', 'construction'],
+  'Driver': ['chauffeur', 'transport operator', 'delivery driver', 'personal driver', 'vehicle operator', 'motorist'],
+  'Security Guard': ['watchman', 'security officer', 'night guard', 'gatekeeper', 'security personnel', 'bouncer', 'security'],
+  'Salesperson': ['sales agent', 'sales representative', 'marketer', 'shop attendant', 'retail clerk', 'promoter', 'sales'],
+  'Waiter': ['waitress', 'restaurant server', 'food attendant', 'hospitality staff', 'restaurant assistant', 'steward', 'service staff'],
+  'Warehouse Worker': ['storekeeper', 'loader', 'stock handler', 'warehouse assistant', 'inventory staff', 'packer', 'warehouse'],
+  'Farmer': ['agricultural worker', 'farmhand', 'crop grower', 'farm assistant', 'livestock keeper', 'agric worker'],
+  'Housekeeper': ['maid', 'domestic worker', 'cleaner', 'home attendant', 'household helper', 'caretaker'],
+  'Hairdresser': ['barber', 'stylist', 'salon worker', 'beautician', 'hair stylist', 'grooming specialist'],
+  'Babysitter': ['nanny', 'childcare worker', 'caregiver', 'child minder', 'domestic nanny', 'daycare assistant'],
+  'Machine Operator': ['equipment operator', 'production worker', 'factory worker', 'plant operator', 'machine technician'],
+  'Cleaners': ['janitor', 'sanitation worker', 'hygiene attendant', 'house cleaner', 'office cleaner', 'custodian'],
+  'Manpower': ['laborer', 'workforce staff', 'skilled worker', 'factory labor', 'general staff', 'human resource support'],
+  
+  // WHITE-COLLAR WORKER CATEGORIES
+  'Accountant': ['bookkeeper', 'finance officer', 'accounts clerk', 'auditor', 'financial analyst', 'payroll officer', 'accounting assistant'],
+  'Doctors': ['physician', 'medical practitioner', 'health officer', 'general practitioner', 'gp', 'medical specialist', 'clinician', 'doctor'],
+  'Lawyer': ['attorney', 'legal advisor', 'advocate', 'legal consultant', 'solicitor', 'barrister'],
+  'Architect': ['building designer', 'construction planner', 'structural designer', 'urban planner', 'design engineer'],
+  'Teacher': ['educator', 'instructor', 'tutor', 'lecturer', 'trainer', 'academic staff', 'mentor'],
+  'Project Manager': ['program coordinator', 'project supervisor', 'operations manager', 'project lead', 'implementation manager'],
+  'Human Resources Officer': ['hr assistant', 'people & culture officer', 'recruitment officer', 'talent manager', 'hr specialist', 'human resources'],
+  'Marketing Specialist': ['marketing officer', 'brand manager', 'sales & marketing executive', 'digital marketer', 'promotions coordinator', 'marketing'],
+  'Software Developer': ['programmer', 'software engineer', 'web developer', 'app developer', 'coder', 'it developer', 'developer'],
+  'Chef': ['cook', 'culinary expert', 'kitchen supervisor', 'head cook', 'culinary specialist', 'pastry chef'],
+  'Graphic designer': ['graphic designer', 'visual designer', 'creative designer', 'graphics'],
+};
+
 class APIError extends Error {
   constructor(message, code = 'API_ERROR') {
     super(message);
@@ -87,6 +122,7 @@ class EmployerAgent {
       lastSearchType: null,
       lastEmployerIntent: false,
       isEmailRequest: false,
+      isHiringProcessRequest: false,
     };
   }
 
@@ -155,8 +191,66 @@ class EmployerAgent {
     return found ? found.id : null;
   }
 
+  /**
+   * Find category by matching user query against synonyms
+   * Returns the category name if a synonym match is found
+   */
+  findCategoryBySynonym(userQuery) {
+    if (!userQuery) return null;
+    
+    const queryLower = String(userQuery).toLowerCase().trim();
+    
+    // First, try exact category name match
+    const exactMatch = this.categories.find(c => 
+      (c.name || '').toLowerCase() === queryLower || 
+      (c.displayName || '').toLowerCase() === queryLower
+    );
+    if (exactMatch) return exactMatch.name;
+    
+    // Then check synonyms
+    for (const [categoryName, synonyms] of Object.entries(CATEGORY_SYNONYMS)) {
+      // Check if query contains any synonym or if any synonym contains the query
+      const matchFound = synonyms.some(synonym => {
+        const synLower = synonym.toLowerCase();
+        // Exact match
+        if (queryLower === synLower) return true;
+        // Query contains the synonym (e.g., "need a nanny" contains "nanny")
+        if (queryLower.includes(synLower)) return true;
+        // Synonym contains the query (e.g., "data entry" matches "data entry clerk")
+        if (synLower.includes(queryLower) && queryLower.length >= 4) return true;
+        return false;
+      });
+      
+      if (matchFound) {
+        console.log(`[EmployerAgent] 🎯 Matched "${userQuery}" to category "${categoryName}" via synonyms`);
+        return categoryName;
+      }
+    }
+    
+    return null;
+  }
+
   async shouldHandleQuery(userMessage, conversationHistory = []) {
     const lower = (userMessage || '').toLowerCase();
+    
+    // Check for hiring process information requests
+    const hiringProcessKeywords = [
+      'hiring process', 'how to hire', 'how can i hire', 'how do i hire',
+      'process of hiring', 'steps to hire', 'hire process', 'hiring steps',
+      'how does hiring work', 'how hiring works', 'hiring procedure',
+      'ways to hire', 'options to hire', 'hire on kozi', 'hiring on kozi',
+      'help me with hiring', 'help with hiring', 'help me hire',
+      'interview process', 'hiring and interview', 'hiring interview',
+      'guide to hiring', 'guide me through hiring', 'explain hiring',
+      'what are the hiring steps', 'what is the hiring process'
+    ];
+    const isHiringProcessRequest = hiringProcessKeywords.some(kw => lower.includes(kw));
+    
+    if (isHiringProcessRequest) {
+      this.conversationContext.lastEmployerIntent = true;
+      this.conversationContext.isHiringProcessRequest = true;
+      return true;
+    }
     
     // Check for email writing help requests
     const emailWritingKeywords = [
@@ -278,17 +372,21 @@ Extract search filters for candidate search based on the conversation.
 
 **CRITICAL: Be AGGRESSIVE about extracting category names!**
 
-When user mentions a job type/skill, ALWAYS try to match it to a category:
-- "marketing" or "marketer" → categoryName: "Marketing Specialist" 
-- "sales" or "salesperson" → categoryName: "Salesperson"
-- "driver" → categoryName: "Driver"
+When user mentions a job type/skill, ALWAYS try to match it to a category using synonyms:
+- "nanny" or "childcare" → categoryName: "Babysitter"
+- "maid" or "domestic worker" → categoryName: "Housekeeper"
 - "chef" or "cook" → categoryName: "Chef"
-- "cleaner" or "cleaning" → categoryName: "Cleaner"
+- "security" or "watchman" → categoryName: "Security Guard"
+- "driver" or "chauffeur" → categoryName: "Driver"
+- "cleaner" or "janitor" → categoryName: "Cleaners"
+- "developer" or "programmer" → categoryName: "Software Developer"
+- "lawyer" or "attorney" → categoryName: "Lawyer"
+- "doctor" or "physician" → categoryName: "Doctors"
+- "teacher" or "tutor" → categoryName: "Teacher"
+- "accountant" or "bookkeeper" → categoryName: "Accountant"
+- "marketing" or "marketer" → categoryName: "Marketing Specialist"
+- "sales" or "salesperson" → categoryName: "Salesperson"
 - "construction" or "builder" → categoryName: "Construction Worker"
-- "security" or "guard" → categoryName: "Security Guard"
-- "IT" or "tech" or "developer" → categoryName: "IT Specialist"
-- "accountant" or "accounting" → categoryName: "Accountant"
-- "nurse" or "doctor" or "medical" → categoryName: "Healthcare Worker"
 
 **RULES:**
 1. ALWAYS extract categoryName if user mentions ANY job type/skill
@@ -365,7 +463,26 @@ Return JSON only:
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
-      const categoryName = parsed.categoryName || null;
+      let categoryName = parsed.categoryName || null;
+      
+      // If LLM didn't extract a category, try synonym matching on the role
+      if (!categoryName && parsed.role) {
+        const matchedCategory = this.findCategoryBySynonym(parsed.role);
+        if (matchedCategory) {
+          categoryName = matchedCategory;
+          console.log(`[EmployerAgent] 📝 Synonym match from role: "${parsed.role}" → "${categoryName}"`);
+        }
+      }
+      
+      // Also try matching the entire user query if still no category
+      if (!categoryName) {
+        const matchedCategory = this.findCategoryBySynonym(userQuery);
+        if (matchedCategory) {
+          categoryName = matchedCategory;
+          console.log(`[EmployerAgent] 📝 Synonym match from query: "${userQuery}" → "${categoryName}"`);
+        }
+      }
+      
       const categoryId = categoryName ? this.findCategoryIdByName(categoryName) : null;
 
       console.log('[EmployerAgent] 🔍 Extracted filters:', {
@@ -738,6 +855,109 @@ Return ONLY valid JSON, no additional text.
   }
 
   /**
+   * Provides detailed hiring process information
+   */
+  async getHiringProcessInfo() {
+    return {
+      type: 'hiring_process',
+      message: `# 🎯 **HIRING PROCESS ON KOZI**
+
+Kozi offers **4 ways to hire**, depending on your needs:
+
+---
+
+## **OPTION 1: Hire Support Workers (Domestic or Blue-Collar)**
+
+1. From your dashboard, open the left navigation menu and click **"All Jobseekers"**
+2. Use the filters to narrow down candidates by:
+   - Job type (housemaid, cleaner, chef, babysitter, etc.)
+   - Gender, age, experience level, location, and salary range
+3. Review each profile carefully
+4. Once you find someone who matches your criteria, click **"Hire"**
+5. Our Kozi team will contact you within **3 business days** to finalize the placement
+6. If you want clarification before hiring, click **"Quick Support"** - our team will reach out to assist
+7. Kozi schedules the interview on your behalf
+8. To confirm the process, you'll pay a service fee of **60,000 RWF**
+
+---
+
+## **OPTION 2: Fill the Residential Job Form**
+
+If you prefer to make a direct hiring request:
+
+1. Visit https://kozi.rw/Resedential-Job
+2. Fill in the Residential Job Form with:
+   - Type of worker needed
+   - Work location
+   - Work duration (stay-in, stay-out, part-time, etc.)
+   - Expected salary and other preferences
+3. Our Kozi team reviews your form and sends you qualified candidates within **3 business days**
+
+---
+
+## **OPTION 3: Hire or Recruit White-Collar Workers**
+
+For companies or individuals hiring white-collar workers:
+
+1. After registering as a Job Provider, you can **publish job opportunities** directly:
+   - Go to your dashboard
+   - Click **"Post a Job"**
+   - Fill in job details (title, qualifications, experience, responsibilities, salary range)
+   - Submit the posting for review
+
+2. Once approved, the job post will appear on Kozi's job listings, and qualified talents can apply through your job link
+
+3. You'll receive applications directly in your dashboard or via your registered email
+
+4. **Important:** To post jobs and access advanced features, you must have an **active premium subscription plan**:
+   - Receive unlimited applications
+   - View verified candidate profiles
+   - Use AI-powered matching
+   - Manage multiple job posts
+
+5. Activate premium features from your dashboard by clicking **"Upgrade Plan"**
+
+---
+
+## **OPTION 4: Request via Email (Manual Form)**
+
+1. Email **info@kozi.rw** to request a Job Provider Form
+2. Fill it out and send it back
+3. The Kozi team will shortlist suitable candidates and contact you within **3 business days**
+
+---
+
+## **📋 Step 3: Interview & Confirmation**
+
+- Kozi arranges interviews (online or in-person) with shortlisted candidates
+- Once you confirm your choice, you'll proceed with the placement payment and contract finalization
+
+---
+
+## **✅ Step 4: Placement & Support**
+
+- Kozi confirms the worker's start date
+- The AI system updates the record to "Placed"
+- Our team follows up after placement to ensure satisfaction
+- If you need a replacement, Kozi will assist under the service agreement
+
+---
+
+## **💬 Step 5: Continuous Support**
+
+Kozi keeps managing and verifying placed workers. You can always reach our support team through:
+
+- Your dashboard's **Quick Support** feature
+- Email: **info@kozi.rw**
+- Phone: **+250 788 719 678**
+
+---
+
+Is there a specific hiring option you'd like to use? I can help you search for candidates right now!`,
+    };
+  }
+
+  /**
    * Generate a professional email based on employer's request
    */
   async generateProfessionalEmail(userMessage) {
@@ -796,6 +1016,12 @@ Return ONLY the email, no additional commentary.`;
       
       const shouldHandle = await this.shouldHandleQuery(userMessage, conversationHistory);
       if (!shouldHandle) return null;
+
+      // Check if this is a hiring process information request
+      if (this.conversationContext.isHiringProcessRequest) {
+        this.conversationContext.isHiringProcessRequest = false; // Reset flag
+        return await this.getHiringProcessInfo();
+      }
 
       // Check if this is an email writing request
       if (this.conversationContext.isEmailRequest) {

@@ -8,6 +8,7 @@ const chatRoutes = require('./routes/chat.route');
 const adminRouter = require('./routes/admin.route');
 const gmailRouter = require('./routes/gmail.route');
 const jobsRouter = require('./routes/jobs.route');
+const publicChatRouter = require('./routes/publicChat.route');
 const { errorHandler } = require('./middlewares/error');
 const logger = require('./utils/logger');
 
@@ -41,6 +42,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRouter);
 app.use('/api/gmail', gmailRouter);
 app.use('/api/jobs', jobsRouter);
+app.use('/api', publicChatRouter); // Public chatbot - no authentication required
 
 app.use(errorHandler);
 

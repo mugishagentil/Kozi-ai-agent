@@ -19,7 +19,7 @@
         </button>
       </div>
       <div class="powered-by">
-        Powered by Sanson Group
+        Powered by <a href="https://www.sansongrp.com/" target="_blank" rel="noopener noreferrer">Sanson Group</a>
       </div>
     </div>
   </div>
@@ -120,6 +120,15 @@ const handleKeyPress = (event) => {
   margin: 0;
   line-height: 1;
   opacity: 0.8;
+}
+
+.powered-by a {
+  color: #9ca3af;
+  text-decoration: none;
+}
+
+.powered-by a:hover {
+  text-decoration: underline;
 }
 
 .chat-input input {

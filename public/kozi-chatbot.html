@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kozi Live Chatbot</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* ============ CHAT WIDGET STYLES ============ */
+        .kozi-chat-widget {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 9999;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        /* Chat Button */
+        .kozi-chat-button {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #E41E79 0%, #C0126E 100%);
+            border: none;
+            color: white;
+            font-size: 22px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(228, 30, 121, 0.4);
+            transition: all 0.3s ease;
+        }
+
+        .kozi-chat-button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(228, 30, 121, 0.6);
+        }
+
+        /* Chat Window */
+        .kozi-chat-window {
+            width: 350px;
+            height: 480px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Header */
+        .kozi-chat-header {
+            background: linear-gradient(135deg, #E41E79 0%, #C0126E 100%);
+            color: white;
+            padding: 12px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .kozi-header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .kozi-header-logo {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            object-fit: cover;
+        }
+
+        .kozi-header-right {
+            display: flex;
+            gap: 8px;
+        }
+
+        .kozi-icon-btn {
+            background: transparent;
+            border: none;
+            color: white;
+            cursor: pointer;
+            padding: 4px;
+            font-size: 14px;
+            opacity: 0.9;
+            transition: opacity 0.2s;
+        }
+
+        .kozi-icon-btn:hover {
+            opacity: 1;
+        }
+
+        /* Messages */
+        .kozi-chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+            background: white;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Welcome Screen */
+        .kozi-welcome-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 20px 10px;
+            height: 100%;
+        }
+
+        .kozi-welcome-title {
+            margin: 0 0 12px 0;
+            font-size: 17px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #4a5568 0%, #E41E79 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1.4;
+        }
+
+        .kozi-welcome-description {
+            font-size: 13px;
+            color: #6b7280;
+            margin: 0 0 20px 0;
+            line-height: 1.5;
+        }
+
+        /* Quick Suggestions */
+        .kozi-suggestions-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 8px 0;
+            justify-content: center;
+        }
+
+        .kozi-suggestion-btn {
+            background: white;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 18px;
+            padding: 7px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #374151;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .kozi-suggestion-emoji {
+            font-size: 13px;
+        }
+
+        .kozi-suggestion-btn:hover {
+            background: #fef2f8;
+            border-color: #E41E79;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(228, 30, 121, 0.15);
+        }
+
+        .kozi-message {
+            display: flex;
+        }
+
+        .kozi-message.user {
+            justify-content: flex-end;
+        }
+
+        .kozi-message.bot {
+            justify-content: flex-start;
+        }
+
+        .kozi-message-bubble {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 16px;
+            line-height: 1.4;
+            font-size: 13px;
+        }
+
+        .kozi-message.user .kozi-message-bubble {
+            background: linear-gradient(135deg, #E41E79 0%, #C0126E 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .kozi-message.bot .kozi-message-bubble {
+            background: #E8E8E8;
+            color: #333;
+            border-bottom-left-radius: 4px;
+        }
+
+        /* Typing Indicator */
+        .kozi-typing-indicator {
+            display: flex;
+            gap: 3px;
+            padding: 10px 12px;
+        }
+
+        .kozi-typing-indicator span {
+            width: 6px;
+            height: 6px;
+            background: #999;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite;
+        }
+
+        .kozi-typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .kozi-typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes bounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-6px); }
+        }
+
+        /* Input Area */
+        .kozi-chat-input-area {
+            padding: 10px 14px;
+            background: white;
+            border-top: 1px solid #e5e7eb;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .kozi-chat-input-area input {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            padding: 9px 14px;
+            font-size: 13px;
+            outline: none;
+            background: white;
+        }
+
+        .kozi-chat-input-area input:focus {
+            border-color: #E41E79;
+        }
+
+        .kozi-chat-input-area input::placeholder {
+            color: #999;
+        }
+
+        .kozi-send-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 6px;
+            background: linear-gradient(135deg, #E41E79 0%, #C0126E 100%);
+            border: none;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+            box-shadow: 0 2px 6px rgba(228, 30, 121, 0.3);
+        }
+
+        .kozi-send-btn:hover:not(:disabled) {
+            box-shadow: 0 4px 10px rgba(228, 30, 121, 0.4);
+            transform: scale(1.05);
+        }
+
+        .kozi-send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .kozi-send-btn i {
+            font-size: 14px;
+        }
+
+        /* Footer */
+        .kozi-chat-footer-text {
+            text-align: center;
+            font-size: 10px;
+            color: #999;
+            padding: 6px 0;
+            background: white;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .kozi-chat-footer-text a {
+            color: #999;
+            text-decoration: none;
+            display: inline;
+        }
+
+        .kozi-chat-footer-text a:hover {
+            text-decoration: underline;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .kozi-chat-widget {
+                bottom: 10px;
+                left: 10px;
+            }
+            
+            .kozi-chat-window {
+                width: calc(100vw - 20px);
+                height: calc(100vh - 80px);
+            }
+        }
+
+        /* Message formatting */
+        .kozi-message-bubble h2 {
+            font-weight: 600;
+            margin: 12px 0 8px 0;
+            font-size: 15px;
+            color: #E41E79;
+        }
+
+        .kozi-message-bubble h3 {
+            font-weight: 600;
+            margin: 10px 0 6px 0;
+            font-size: 14px;
+            color: #E41E79;
+        }
+
+        .kozi-message-bubble h4 {
+            font-weight: 600;
+            margin: 8px 0 4px 0;
+            font-size: 13px;
+            color: #E41E79;
+        }
+
+        .kozi-message-bubble strong {
+            font-weight: 600;
+        }
+
+        .kozi-message-bubble em {
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <!-- Chat Widget Container -->
+    <div id="koziChatWidget" class="kozi-chat-widget">
+        <!-- Chat Button (when minimized) -->
+        <button id="koziChatButton" class="kozi-chat-button" aria-label="Open chat">
+            <i class="fas fa-comments"></i>
+        </button>
+
+        <!-- Chat Window (when open) -->
+        <div id="koziChatWindow" class="kozi-chat-window" style="display: none;">
+            <!-- Header -->
+            <div class="kozi-chat-header">
+                <div class="kozi-header-left">
+                    <img src="/generative.png" alt="AI" class="kozi-header-logo" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22%3E%3Crect width=%2228%22 height=%2228%22 fill=%22%23E41E79%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22white%22 font-size=%2212%22%3EK%3C/text%3E%3C/svg%3E';">
+                    <span>Kozi Assistant</span>
+                </div>
+                <div class="kozi-header-right">
+                    <button id="koziResetBtn" class="kozi-icon-btn" title="Reset chat">
+                        <i class="fas fa-redo"></i>
+                    </button>
+                    <button id="koziCloseBtn" class="kozi-icon-btn" title="Close">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Messages Area -->
+            <div id="koziMessagesContainer" class="kozi-chat-messages">
+                <!-- Welcome Screen -->
+                <div id="koziWelcomeScreen" class="kozi-welcome-screen">
+                    <div class="kozi-welcome-title">
+                        Hello there, Ready to dive in?
+                    </div>
+                    <p class="kozi-welcome-description">I'm here to help you with everything related to Kozi platform</p>
+                    
+                    <!-- Quick Suggestions -->
+                    <div class="kozi-suggestions-area">
+                        <button class="kozi-suggestion-btn" data-text="What is Kozi?">
+                            <span class="kozi-suggestion-emoji">❓</span>
+                            About Kozi
+                        </button>
+                        <button class="kozi-suggestion-btn" data-text="What are your pricing and fees?">
+                            <span class="kozi-suggestion-emoji">💰</span>
+                            Pricing
+                        </button>
+                        <button class="kozi-suggestion-btn" data-text="How do I register on Kozi?">
+                            <span class="kozi-suggestion-emoji">📝</span>
+                            Register
+                        </button>
+                        <button class="kozi-suggestion-btn" data-text="How can I contact Kozi?">
+                            <span class="kozi-suggestion-emoji">📞</span>
+                            Contact
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="kozi-chat-input-area">
+                <input 
+                    id="koziUserInput" 
+                    type="text" 
+                    placeholder="Message..."
+                />
+                <button id="koziSendBtn" class="kozi-send-btn">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+
+            <!-- Footer -->
+            <div class="kozi-chat-footer-text">
+                Powered by <a href="https://www.sansongrp.com/" target="_blank" rel="noopener noreferrer">Sanson Grp</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============ CONFIGURATION ============
+        // ⚠️ IMPORTANT: Replace this with your actual OpenAI API key
+        const OPENAI_API_KEY = 'YOUR_OPENAI_API_KEY_HERE';
+        
+        // OpenAI API endpoint
+        const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+        
+        // System prompt for the chatbot
+        const SYSTEM_PROMPT = `You are Kozi's friendly and helpful virtual assistant for our public website. Your role is to help visitors learn about Kozi and guide them through our platform.
+
+**About Kozi:**
+Kozi is Rwanda's leading employment platform connecting job seekers with employers. We specialize in domestic workers, skilled laborers, and professional services in Rwanda.
+
+**Key Information:**
+• **Registration:** 
+  - Job Seekers: Sign up → Choose "Job Seeker" → Fill details → Verify account → Complete profile
+  - Employers: Sign up → Choose "Employer" → Provide company details → Verify → Post jobs
+  
+• **Services:**
+  - Job seeker registration (FREE)
+  - Employer matching
+  - Verified profiles
+  - Secure payment processing
+  - Background checks
+  - 24/7 support
+
+• **Pricing:**
+  - Job Seekers: Completely FREE
+  - Employers: 18% commission on first month salary only, no upfront fees
+
+• **Posting Jobs:**
+  1. Log in as employer
+  2. Go to "Jobs" → "Post New Job"
+  3. Fill in job details (title, description, salary, location, requirements)
+  4. Publish (reviewed within 24 hours)
+
+• **Finding Workers:**
+  - Browse verified profiles
+  - Filter by skills, location, experience
+  - View detailed profiles
+  - Contact candidates directly
+  - All workers are background checked and verified
+
+• **Verification Process:**
+  - National ID verification
+  - Phone and email verification
+  - Work reference checks
+  - Criminal background checks (for sensitive roles)
+  - Takes 24-48 hours
+
+• **Contact Information:**
+  - Phone: +250 788 719 678
+  - Email: info@kozi.rw
+  - Address: Kicukiro-Kagarama, Kigali, Rwanda
+  - Website: www.kozi.rw
+  - Hours: Monday-Friday 8AM-6PM, Saturday 9AM-2PM
+
+**Your Guidelines:**
+1. Be warm, friendly, and professional
+2. Provide clear, step-by-step guidance
+3. Answer questions about registration, job posting, finding workers, pricing, and verification
+4. DO NOT access or mention any user data, database, or specific accounts
+5. If asked about specific accounts or private data, politely explain you can only provide general information
+6. Always offer to connect them with human support for complex issues: +250 788 719 678 or info@kozi.rw
+7. Use emojis sparingly to keep it professional but friendly
+8. Keep responses concise but informative (2-4 short paragraphs)
+9. If unsure, provide contact information for human support
+
+**Important:**
+- You are for public visitors, NOT logged-in users
+- Do NOT retrieve or access any database information
+- Do NOT provide specific user account details
+- Focus on helping people learn about Kozi and how to use it
+
+Now assist the user with their question about Kozi:`;
+
+        // ============ STATE MANAGEMENT ============
+        const state = {
+            isOpen: false,
+            messages: [],
+            conversationHistory: [],
+            isTyping: false
+        };
+
+        // ============ DOM ELEMENTS ============
+        const elements = {
+            widget: document.getElementById('koziChatWidget'),
+            button: document.getElementById('koziChatButton'),
+            window: document.getElementById('koziChatWindow'),
+            messagesContainer: document.getElementById('koziMessagesContainer'),
+            welcomeScreen: document.getElementById('koziWelcomeScreen'),
+            userInput: document.getElementById('koziUserInput'),
+            sendBtn: document.getElementById('koziSendBtn'),
+            resetBtn: document.getElementById('koziResetBtn'),
+            closeBtn: document.getElementById('koziCloseBtn'),
+            suggestionBtns: document.querySelectorAll('.kozi-suggestion-btn')
+        };
+
+        // ============ UTILITY FUNCTIONS ============
+        function formatMessage(text) {
+            return text
+                // Handle markdown headings (###, ##, #)
+                .replace(/^###\s*(.+)$/gm, '<h4>$1</h4>')
+                .replace(/^##\s*(.+)$/gm, '<h3>$1</h3>')
+                .replace(/^#\s*(.+)$/gm, '<h2>$1</h2>')
+                // Bold and italic
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                // Newlines
+                .replace(/\n/g, '<br>');
+        }
+
+        function scrollToBottom() {
+            setTimeout(() => {
+                elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+            }, 100);
+        }
+
+        // ============ UI FUNCTIONS ============
+        function toggleChat() {
+            state.isOpen = !state.isOpen;
+            elements.window.style.display = state.isOpen ? 'flex' : 'none';
+            elements.button.style.display = state.isOpen ? 'none' : 'block';
+            
+            if (state.isOpen) {
+                scrollToBottom();
+                elements.userInput.focus();
+            }
+        }
+
+        function resetChat() {
+            state.messages = [];
+            state.conversationHistory = [];
+            elements.userInput.value = '';
+            renderMessages();
+        }
+
+        function addMessage(sender, text) {
+            state.messages.push({ sender, text });
+            renderMessages();
+            scrollToBottom();
+        }
+
+        function showTypingIndicator() {
+            const typingHtml = `
+                <div class="kozi-message bot">
+                    <div class="kozi-message-bubble kozi-typing-indicator">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            `;
+            elements.messagesContainer.insertAdjacentHTML('beforeend', typingHtml);
+            scrollToBottom();
+        }
+
+        function removeTypingIndicator() {
+            const typingIndicator = elements.messagesContainer.querySelector('.kozi-typing-indicator');
+            if (typingIndicator) {
+                typingIndicator.closest('.kozi-message').remove();
+            }
+        }
+
+        function renderMessages() {
+            if (state.messages.length === 0) {
+                elements.welcomeScreen.style.display = 'flex';
+                // Re-attach suggestion button listeners
+                attachSuggestionListeners();
+                return;
+            }
+
+            elements.welcomeScreen.style.display = 'none';
+            
+            let html = '';
+            state.messages.forEach(msg => {
+                html += `
+                    <div class="kozi-message ${msg.sender}">
+                        <div class="kozi-message-bubble">${formatMessage(msg.text)}</div>
+                    </div>
+                `;
+            });
+            
+            // Preserve welcome screen structure for when we reset
+            const welcomeScreenHtml = `
+                <div id="koziWelcomeScreen" class="kozi-welcome-screen" style="display: none;">
+                    <div class="kozi-welcome-title">
+                        Hello there, Ready to dive in?
+                    </div>
+                    <p class="kozi-welcome-description">I'm here to help you with everything related to Kozi platform</p>
+                    
+                    <div class="kozi-suggestions-area">
+                        <button class="kozi-suggestion-btn" data-text="What is Kozi?">
+                            <span class="kozi-suggestion-emoji">❓</span>
+                            About Kozi
+                        </button>
+                        <button class="kozi-suggestion-btn" data-text="What are your pricing and fees?">
+                            <span class="kozi-suggestion-emoji">💰</span>
+                            Pricing
+                        </button>
+                        <button class="kozi-suggestion-btn" data-text="How do I register on Kozi?">
+                            <span class="kozi-suggestion-emoji">📝</span>
+                            Register
+                        </button>
+                        <button class="kozi-suggestion-btn" data-text="How can I contact Kozi?">
+                            <span class="kozi-suggestion-emoji">📞</span>
+                            Contact
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            elements.messagesContainer.innerHTML = html + welcomeScreenHtml;
+            elements.welcomeScreen = document.getElementById('koziWelcomeScreen');
+            scrollToBottom();
+        }
+
+        function attachSuggestionListeners() {
+            document.querySelectorAll('.kozi-suggestion-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const text = btn.getAttribute('data-text');
+                    sendMessage(text);
+                });
+            });
+        }
+
+        // ============ API FUNCTIONS ============
+        async function getAIResponse(userMessage) {
+            try {
+                // Check if API key is set
+                if (OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY_HERE') {
+                    throw new Error('Please set your OpenAI API key in the configuration section');
+                }
+
+                // Build conversation history
+                const messages = [
+                    { role: 'system', content: SYSTEM_PROMPT },
+                    ...state.conversationHistory.slice(-10), // Last 10 messages for context
+                    { role: 'user', content: userMessage }
+                ];
+
+                const response = await fetch(OPENAI_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: 'gpt-4o-mini',
+                        messages: messages,
+                        temperature: 0.7,
+                        max_tokens: 500
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error?.message || 'Failed to get response');
+                }
+
+                const data = await response.json();
+                return data.choices[0].message.content.trim();
+            } catch (error) {
+                console.error('API Error:', error);
+                throw error;
+            }
+        }
+
+        async function sendMessage(text) {
+            if (!text.trim() || state.isTyping) return;
+
+            // Add user message
+            addMessage('user', text);
+            
+            // Add to conversation history
+            state.conversationHistory.push({
+                role: 'user',
+                content: text
+            });
+
+            // Show typing indicator
+            showTypingIndicator();
+            state.isTyping = true;
+            elements.userInput.disabled = true;
+            elements.sendBtn.disabled = true;
+
+            try {
+                const response = await getAIResponse(text);
+                
+                // Remove typing indicator
+                removeTypingIndicator();
+                
+                // Add bot message
+                addMessage('bot', response);
+                
+                // Add to conversation history
+                state.conversationHistory.push({
+                    role: 'assistant',
+                    content: response
+                });
+            } catch (error) {
+                removeTypingIndicator();
+                const errorMessage = `I apologize, but I'm having trouble connecting. Please contact us at +250 788 719 678 or info@kozi.rw`;
+                addMessage('bot', errorMessage);
+            } finally {
+                state.isTyping = false;
+                elements.userInput.disabled = false;
+                elements.sendBtn.disabled = false;
+                elements.userInput.focus();
+            }
+        }
+
+        // ============ EVENT HANDLERS ============
+        function handleSend() {
+            const message = elements.userInput.value.trim();
+            if (!message || state.isTyping) return;
+            
+            elements.userInput.value = '';
+            sendMessage(message);
+        }
+
+        // ============ EVENT LISTENERS ============
+        elements.button.addEventListener('click', toggleChat);
+        elements.closeBtn.addEventListener('click', toggleChat);
+        elements.resetBtn.addEventListener('click', resetChat);
+        
+        elements.sendBtn.addEventListener('click', handleSend);
+        
+        elements.userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+            }
+        });
+
+        // Attach suggestion button listeners on page load
+        attachSuggestionListeners();
+    </script>
+</body>
+</html>

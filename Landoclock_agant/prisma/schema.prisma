@@ -1,0 +1,36 @@
+// Prisma schema for Land O'Clock chat history
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator python {
+  provider = "prisma-client-py"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ChatSession {
+  id        String   @id // sessionId from frontend
+  title     String?  // Auto-generated title
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  messages  ChatMessage[]
+
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id        Int      @id @default(autoincrement())
+  sessionId String   @map("session_id")
+  role      String   // 'user' or 'assistant'
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("chat_messages")
+}
+

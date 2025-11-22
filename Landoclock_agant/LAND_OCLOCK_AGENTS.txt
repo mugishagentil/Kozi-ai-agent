@@ -1,0 +1,719 @@
+﻿LAND O'CLOCK AGENTS
+________________
+
+
+
+
+NYAMIRAMBO AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Damaseni
+	0786057896
+	2
+	Jabiri
+	0781781734
+	3
+	Justin Miduha
+	0788861386
+	4
+	Kibonke
+	0781115631
+	5
+	Leo
+	0783421939
+	6
+	Manuel
+	0788221807
+	7
+	Minani
+	0788690144
+	8
+	Nyamirambo Commissionary
+	0784382734
+	9
+	Nyinya
+	0787332250
+	10
+	Teo
+	0788469528
+	11
+	Valence
+	0785316898
+	12
+	Jeanpaul
+	0781078579
+	13
+	Valence
+	0784382734
+	14
+	Irali
+	0784470765
+	
+
+SONATUBE AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Aime
+	0722137536
+	2
+	Aime 2
+	0795 924221
+	3
+	Alicade
+	0788737470
+	4
+	Alicade 2
+	0795853686
+	5
+	Francois
+	0788597791
+	6
+	Muhire
+	0787831502
+	7
+	Olivier
+	0783460321
+	8
+	Samuel
+	0785509025
+	9
+	Emanuel (1)
+	0785704132
+	10
+	Emanuel (2) of
+	0785328867
+	12
+	Innocent
+	0783428985
+	13
+	Jean Batista
+	0784211760
+	14
+	Jerome
+	0786114637
+	15
+	John
+	0782648240
+	16
+	Kazungu
+	0786932157
+	17
+	Mama Ingabire
+	0734342388
+	18
+	Manishimwe
+	0785023205
+	20
+	Ndagije
+	0788530518
+	22
+	Papa Gaela
+	0798535045
+	23
+	Patrick
+	0788390319
+	24
+	Ruhumuriza
+	0785295202
+	25
+	Sagihobe
+	0788782435
+	26
+	Silidio
+	0783047464
+	27
+	Daniel { Pro }
+	0788553484
+	28
+	Jeremie
+	0784138787
+	29
+	Vicent { Pro }
+	0780586625
+	30
+	
+
+	
+
+	
+
+REMERA AGENTS
+
+
+NO
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Alphonse 
+	0788255022
+	2
+	Bizimana
+	0787147847
+	3
+	Cyungo
+	0782646134
+	4
+	Fils
+	0788699743
+	5
+	Jado
+	0786403981
+	6
+	Janvier
+	0788872144
+	7
+	Jean Paul
+	0788625397
+	8
+	Joseph
+	0786501951
+	9
+	Martin
+	0784047254
+	10
+	Modeste
+	0788809442
+	11
+	Remera Commissional
+	0735218189
+	12
+	Alex
+	0788211961
+	14
+	Sirasi
+	0786811228
+	15
+	Vicent
+	0788644690
+	
+
+KABEZA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Aluberi
+	0782775702
+	2
+	Cloude 
+	0790800924
+	3
+	Elineste
+	0788473253
+	4
+	Franswa
+	0795191954
+	5
+	Innocent 
+	0782410600
+	6
+	Kibonke 
+	0780969249
+	7
+	Mbonye Inshuti 
+	0782777784
+	8
+	Mugisha  
+	0735718443
+	9
+	Musajya 
+	0788733771
+	10
+	Shyaka
+	0788855120
+	
+
+GIKONDO AGENTS
+
+
+1
+	AGENT NAME
+	AGENT NUMBER
+	2
+	Bosco ( Pro )
+	0787278774
+	3
+	Roger
+	0737607148
+	4
+	Oscal
+	0788229698
+	5
+	Joseph
+	0785690796
+	6
+	Jado
+	0788255313
+	7
+	Habineza (Pro)
+	0788866953
+	8
+	Murwanashayaka
+	0793164951
+	9
+	Emmanuel
+	0786437681
+	10
+	Korimba
+	0780796515
+	11
+	Baptiste
+	0788460930
+	12
+	Eric
+	0783161442
+	
+
+KIMIRONKO AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Gabriel
+	0783596567
+	2
+	Happy
+	0791430733
+	3
+	Jamari
+	0788391355
+	4
+	John
+	0788730189
+	5
+	John
+	0788346823
+	6
+	Maitre
+	0788271529
+	7
+	Manishimwe
+	0783988097
+	8
+	Manuel
+	0788809089
+	9
+	Mugabe
+	0783261899
+	10
+	Mushi
+	0787194620
+	11
+	Papa brian
+	0783598597
+	12
+	Rwabutare
+	0788229444
+	13
+	Ahivuye
+	0788486797
+	14
+	Kimironko commissioner
+	0781414696
+	15
+	Peter
+	0783244575
+	
+
+KACYIRU AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Damaseni { Pro } 
+	0788281333
+	2
+	Félicien
+	0783542020
+	3
+	Jean
+	0783726657
+	4
+	Kajoriti
+	0788578105
+	5
+	Kazungu { Pro }
+	0788735044
+	6
+	Said { Pro }
+	0785454242
+	7
+	Thomas
+	0785424698
+	GISOZI AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Augustin
+	0788990800
+	2
+	Mariko
+	0782280306
+	3
+	Rora
+	0781869644
+	4
+	Nsabimana
+	0787690792
+	5
+	Daniel
+	0788402677
+	6
+	Tibo 
+	0722535534
+	
+
+KARAMA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Rukara
+	0785178992
+	2
+	Boris
+	0790199285
+	3
+	Rose 
+	0786535333
+	4
+	Savio
+	0727359761
+	5
+	Nicole
+	0783629724
+	6
+	Bonnie
+	0793852502
+	
+
+MUHIMA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Rukara
+	0788549549
+	2
+	Kazungu 
+	0788881078
+	3
+	Kasimu
+	0788230336
+	4
+	James
+	0788812279
+	
+
+KIMIHURURA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	François
+	0788560277
+	2
+	Kazungu
+	0789553298
+	
+
+GAHANGA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Bosco
+	0792044642
+	2
+	Eric
+	0788804823
+	3
+	Jean Bosco
+	0783643689
+	4
+	Kalisa
+	0788245858
+	5
+	Peter
+	0788438818
+	6
+	Rubangura
+	0782959080
+	7
+	Pascal
+	0788398574
+	
+
+NYANZA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Jean Paul pro
+	0780460555
+	2
+	Felicien
+	0788284205
+	3
+	Cloude
+	0787572702
+	4
+	Erineste
+	0787734901
+	5
+	Jean Marie
+	0780460555
+	
+
+KAGARAMA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Bosco
+	0785066581
+	2
+	Robert
+	0788413013
+	
+
+NYANZA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Alphonse
+	0783124623
+	2
+	Filemon
+	0788925970
+	3
+	Madivandi
+	0782878281
+	4
+	Nunu
+	0781419492
+	5
+	Sam
+	0783500419
+	6
+	Samuel
+	0787004893
+	
+
+KINYINYA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Elyse
+	0728557488
+	2
+	Faustin
+	0785704727
+	3
+	Muhire
+	0780842108
+	4
+	Patrick
+	0783411657
+	5
+	Stiven
+	0785289361
+	6
+	Agent Kinyinya
+	0726552197
+	
+
+
+
+BATSINDA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Rurinda 
+	0788786213
+	2
+	Jean Pierre
+	0791445263
+	3
+	Agent Batsinda
+	0727606540
+	4
+	
+
+	
+
+	
+
+NYACYONGA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Kamanzi
+	0788817238
+	2
+	Jaque
+	0725329278
+	3
+	
+
+	
+
+	4
+	
+
+	
+
+	
+
+KARURUMA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Byiringiro
+	0788224117
+	2
+	Edward
+	0788464803
+	3
+	Jaques pro
+	0783009308
+	4
+	Mama Aime 
+	0788261489
+	
+
+GATSATA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Zirinde
+	0788234816
+	2
+	Jean Bosco Pro
+	0788206192
+	3
+	Emmanuel
+	0783185407
+	4
+	Papa Sessile
+	0788225701
+	5
+	Rukundo
+	0782093697
+	
+
+KIMISAGARA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Emmanuel
+	0789249086
+	2
+	Hussen
+	0728096101
+	3
+	Karitse 65
+	0782420622
+	4
+	Faustin 40
+	0727696673
+	5
+	Musengimana
+	0784096103
+	6
+	Twizagira
+	0788204225
+	7
+	Jean Bosco
+	0782337220
+	
+
+NDERA AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Emmy
+	0785381260
+	2
+	Divin
+	0782359111
+	3
+	Valensi
+	0785391972
+	4
+	Mugabutsinze
+	0784047254
+	5
+	Uwimana
+	0784738869
+	
+
+RUSORORO AGENTS
+
+
+No
+	AGENT NAME
+	AGENT NUMBER
+	1
+	Munyaneza
+	0788793941
+	2
+	Mapendo
+	0788490524
+	3
+	Mfizi
+	0788730189
+	4

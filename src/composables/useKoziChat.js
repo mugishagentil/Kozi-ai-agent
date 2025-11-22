@@ -586,13 +586,39 @@ const initializeUser = async () => {
       }
 
     } catch (e) {
-      console.error('Failed to send message:', e)
+      console.error('❌ Failed to send message:', e)
+      console.error('❌ Error details:', {
+        message: e.message,
+        sessionId: currentSession.value,
+        apiPrefix: getApiPrefix(),
+        hasToken: !!localStorage.getItem('employeeToken') || !!localStorage.getItem('employerToken') || !!localStorage.getItem('adminToken') || !!localStorage.getItem('agentToken')
+      })
+      
+      // Provide more specific error messages based on error type
+      let errorMessage = '**Sorry, I couldn\'t process your message.**\n\n- Please check your internet connection and try again.\n- If this keeps happening, refresh the page.'
+      
+      if (e.message) {
+        if (e.message.includes('401') || e.message.includes('Unauthorized')) {
+          errorMessage = '**Your session has expired.**\n\n- Please refresh the page to continue.\n- If the problem persists, please log out and log in again.'
+        } else if (e.message.includes('403') || e.message.includes('Forbidden')) {
+          errorMessage = '**Access denied.**\n\n- You don\'t have permission to send this message.\n- Please check your account settings or contact support.'
+        } else if (e.message.includes('404') || e.message.includes('Not Found')) {
+          errorMessage = '**Chat session not found.**\n\n- Your chat session may have expired.\n- Please refresh the page to start a new chat.'
+        } else if (e.message.includes('500') || e.message.includes('Internal Server Error')) {
+          errorMessage = '**Server error occurred.**\n\n- Our servers are experiencing issues.\n- Please wait a moment and try again.\n- Contact support if this persists: info@kozi.rw'
+        } else if (e.message.includes('Network') || e.message.includes('fetch') || e.message.includes('Failed to fetch')) {
+          errorMessage = '**Network connection issue.**\n\n- Please check your internet connection.\n- Try refreshing the page.\n- If the problem continues, contact support: +250 788 719 678'
+        } else if (e.message.includes('timeout') || e.message.includes('Timeout')) {
+          errorMessage = '**Request timed out.**\n\n- The server is taking too long to respond.\n- Please try again in a moment.\n- If this continues, refresh the page.'
+        } else if (e.message.includes('session') || e.message.includes('Session')) {
+          errorMessage = '**Chat session error.**\n\n- Your chat session may have expired.\n- Please refresh the page to start a new chat.'
+        }
+      }
+      
       error.value = 'Failed to send message'
       messages.value[botMessageIndex] = {
         sender: 'assistant',
-        text: formatMessage(
-          '**We hit a hiccup.**\n\n- Please check your internet and try again.\n- If this keeps happening, refresh the page.'
-        ),
+        text: formatMessage(errorMessage),
         streaming: false
       }
     } finally {

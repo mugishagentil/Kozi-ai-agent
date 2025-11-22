@@ -51,7 +51,7 @@ Run the script to process the PDF and generate embeddings:
 
 ```bash
 cd backend
-npm run load-knowledge-base
+cd src_python && python scripts/populate_qdrant.py
 ```
 
 This will:
@@ -98,7 +98,7 @@ The AI agents **already use** the knowledge base automatically:
 To update the knowledge base (e.g., after updating the PDF):
 
 ```bash
-npm run load-knowledge-base
+cd src_python && python scripts/populate_qdrant.py
 ```
 
 This will:

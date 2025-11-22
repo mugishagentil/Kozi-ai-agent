@@ -1,0 +1,14 @@
+[phases.setup]
+nixPkgs = ["python311", "nodejs-18_x"]
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt",
+  "npm install",
+  "python3 -m prisma generate",
+  "npx prisma migrate deploy"
+]
+
+[start]
+cmd = "python start.py"
+

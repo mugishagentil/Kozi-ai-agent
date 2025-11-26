@@ -31,7 +31,8 @@ from config.qdrant_config import (
 load_dotenv()
 
 # Configuration
-KNOWLEDGE_DIR = Path(__file__).parent.parent.parent / "data" / "knowledge_base"
+# Point to knowledge_base folder at project root (not backend/data/knowledge_base)
+KNOWLEDGE_DIR = Path(__file__).parent.parent.parent.parent / "knowledge_base"
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 100
 BATCH_SIZE = 100  # Process documents in batches
@@ -218,9 +219,17 @@ def main():
         print(f"  Status: {info.get('status', 'Unknown')}")
     print()
     
-    # Ask user if they want to clear existing data
-    response = input("Do you want to clear existing data and re-index? (y/N): ").strip().lower()
-    if response == 'y':
+    # Ask user if they want to clear existing data (skip if non-interactive)
+    import sys
+    if sys.stdin.isatty():
+        # Interactive mode - ask user
+        response = input("Do you want to clear existing data and re-index? (y/N): ").strip().lower()
+        if response == 'y':
+            clear_collection()
+            print()
+    else:
+        # Non-interactive mode - automatically clear and re-index
+        print("🔄 Non-interactive mode: Clearing existing data and re-indexing...")
         clear_collection()
         print()
     

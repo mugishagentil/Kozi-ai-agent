@@ -1,0 +1,164 @@
+﻿Employer Profile Completion – Step by Step
+________________
+Open the Profile Page
+“Please look at the left sidebar menu on your screen.
+At the top of the sidebar, click on ‘Edit Profile’.”
+Step 1: Account Setup
+Create an employer account by choosing your account type:
+* Individual / Household
+
+* Company
+
+* Organization
+
+* Institution
+
+This tells Kozi what kind of employer you are.
+________________
+
+
+Step 2: Personal / Business Information
+Fill in the basic identity fields:
+   * First Name
+
+   * Last Name
+
+   * Country
+
+   * Telephone Number
+
+   * Gender (optional)
+
+✅ Purpose: Identity verification and secure communication.
+________________
+
+
+Step 3: Location Details
+Select your full address from the dropdowns:
+      * Province
+
+      * District
+
+      * Sector
+
+      * Cell
+
+      * Village
+
+✅ Purpose: Helps Kozi match you with nearby workers.
+________________
+
+
+Step 4: Upload Profile Image
+Upload a profile image (or company logo).
+Rules:
+         * Max size: 1MB
+
+         * Clear image
+
+         * JPG/PNG format
+
+✅ This builds trust with workers.
+________________
+
+
+Step 5: Complete Employer Profile Description (Optional but Recommended)
+Write a short professional description such as:
+            * Type of work environment (home/business)
+
+            * Values (respect, fairness)
+
+            * Working style
+
+Example:
+“We are a respectful household looking for responsible and honest workers.”
+________________
+
+
+Step 6: Verify Phone Number
+You will receive a code by:
+               * SMS or
+
+               * WhatsApp
+
+Enter this code to verify your account.
+________________
+
+
+Step 7: Save and Activate Profile
+Click Save Profile.
+Once saved:
+✅ You can now post jobs
+✅ View worker profiles
+✅ Use Kozi services
+________________
+
+
+Step 8: Post Your First Job (After Profile Completion)
+Use the official job form to request workers:
+📄 Local file reference (as required for your system):
+/mnt/data/Job Providers Request Form.pdf
+This form collects:
+                  * Job role
+
+                  * Worker type
+
+                  * Salary range
+
+                  * Working hours
+
+                  * Special requirements
+
+________________
+
+
+Short AI Logic (for your chatbot)
+When employer says:
+“How do I complete my profile?”
+AI should answer:
+                     1. Select category
+
+                     2. Fill personal details
+
+                     3. Fill location
+
+                     4. Upload image
+
+                     5. Write short description
+
+                     6. Verify phone
+
+                     7. Save profile
+
+KOZI — EMPLOYER FAQ
+________________
+
+
+Employer Account & Profile
+Q: Who is an Employer on Kozi?
+ A: An Employer is an individual, household, company, or organization that uses Kozi to find and hire workers.
+________________
+
+
+Q: How do I create an Employer account?
+ A: Register on the Kozi platform and choose your account type (Individual, Company, Organization, or Institution).
+________________
+
+
+Q: How do I complete my Employer profile?
+ A: Click “Edit Profile” from the left sidebar, then fill in your personal/business details, location, and upload a profile image.
+________________
+
+
+Q: Can I edit my Employer profile later?
+ A: Yes, you can update your profile information at any time.
+________________
+
+
+Q: Why is my phone number required?
+ A: Your phone number is used for account verification and communication with workers.
+________________
+
+
+Q: Is my personal information safe?
+ A: Yes. Kozi protects your information and follows strict data protection laws.

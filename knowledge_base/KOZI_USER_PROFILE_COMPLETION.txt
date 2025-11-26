@@ -1,0 +1,500 @@
+﻿KOZI USER PROFILE COMPLETION 
+________________
+
+
+KB-UP-1: Profile Completion — Purpose
+Every user must complete their profile before applying for jobs. A complete profile helps:
+* Match users with the right jobs
+
+* Improve trust with employers
+
+* Enable legal verification
+
+* Improve AI job recommendations
+
+Profiles must contain accurate and honest details.
+
+
+________________
+
+
+When the user asks how to complete their profile, the AI should respond like this:
+Open the Profile Page
+“Please look at the left sidebar menu on your screen.
+At the top of the sidebar, click on ‘Edit Profile’.”
+
+
+________________
+
+
+KB-UP-2: Personal Information Fields
+1. First Name
+   * Should match the official name on the user’s ID.
+
+2. Last Name
+      * Used for legal and professional identification.
+
+3. Father’s Name
+         * Used for background verification and identity support.
+
+4. Mother’s Name
+            * Helps strengthen identity validation records.
+
+5. Date of Birth
+               * Format: DD/MM/YYYY
+
+               * Used to confirm legal work eligibility and age compliance.
+
+6. Telephone Number
+                  * Must be active and reachable.
+
+                  * Used for job notifications, security alerts, and employer communication.
+
+7. Gender
+                     * Used for legal and job-matching purposes only.
+
+________________
+
+
+KB-UP-3: Location Information
+Users must fill their location details to help the system suggest nearby job opportunities.
+Required fields:
+                        * Province
+
+                        * District
+
+                        * Sector
+
+                        * Cell
+
+                        * Village
+
+Accurate location data helps reduce transportation barriers and improves job matching.
+________________
+
+
+KB-UP-4: Disability Information
+Users can optionally indicate if they have:
+                           * No disability
+
+                           * Physical disability
+
+                           * Visual impairment
+
+                           * Hearing impairment
+
+                           * Other conditions
+
+This helps the system suggest appropriate and safe job environments.
+________________
+
+
+KB-UP-5: Expected Salary Field
+Users should select a salary range that matches:
+                              * Their experience
+
+                              * Their job type
+
+                              * Local market standards
+
+This helps reduce wage conflicts during hiring.
+________________
+
+
+KB-UP-6: Worker Category Selection
+Users must choose:
+Category Type:
+                                 * Basic Worker
+
+                                 * Professional Worker
+
+Category:
+Examples include:
+                                    * Cleaner
+
+                                    * Housekeeper
+
+                                    * Babysitter
+
+                                    * Driver
+
+                                    * Gardener
+
+                                    * Pet caretaker
+
+                                    * Receptionist
+
+                                    * Technician
+
+This helps the AI recommend suitable jobs.
+________________
+
+
+KB-UP-7: File Upload Rules
+ID Document
+                                       * Required
+
+                                       * Must be a clear image or PDF
+
+                                       * Max size: 1MB
+
+                                       * Used for identity verification
+
+Profile Photo
+                                          * Required
+
+                                          * Should show the face clearly
+
+                                          * Good lighting and simple background
+
+CV Upload
+                                             * Optional but recommended
+
+                                             * Helps increase job chances
+
+________________
+
+
+KB-UP-8: Skills and Capabilities Section
+Users should list:
+                                                * Practical skills
+
+                                                * Work experience
+
+                                                * Soft skills
+
+Examples:
+Hard skills:
+                                                   * Cleaning
+
+                                                   * Cooking
+
+                                                   * Pet care
+
+                                                   * Driving
+
+                                                   * Equipment handling
+
+Soft skills:
+                                                      * Communication
+
+                                                      * Honesty
+
+                                                      * Time management
+
+                                                      * Respect
+
+                                                      * Teamwork
+
+________________
+
+
+KOZI KB — AI GUIDE FOR PROFESSIONAL CV WRITING
+________________
+
+
+KB-CV-1: Purpose of a CV
+A CV helps employers quickly understand:
+                                                         * Skills
+
+                                                         * Experience
+
+                                                         * Work history
+
+                                                         * Professional behavior
+
+Even workers without formal education should create a simple CV.
+________________
+
+
+KB-CV-2: Standard CV Structure
+1. Personal Information Section
+Should contain:
+                                                            * Full name
+
+                                                            * Phone number
+
+                                                            * District or city (general, not detailed address)
+
+                                                            * Job title
+
+________________
+
+
+2. Professional Summary
+A short paragraph (3–4 lines) describing:
+                                                               * Years of experience
+
+                                                               * Main skills
+
+                                                               * Work attitude
+
+AI Coaching Rule:
+ Ask the user to describe their experience in simple words, then rewrite it professionally.
+________________
+
+
+3. Work Experience Section
+Users should list:
+                                                                  * Job title
+
+                                                                  * Work place
+
+                                                                  * Time period
+
+                                                                  * Key responsibilities
+
+Informal work is valid experience.
+________________
+
+
+4. Skills Section
+Two types of skills:
+Hard skills:
+                                                                     * Technical or practical skills
+
+Soft skills:
+                                                                        * Personal and communication skills
+
+________________
+
+
+5. Education Section
+List:
+                                                                           * School name (optional)
+
+                                                                           * Level achieved
+
+                                                                           * Certificates or training if any
+
+________________
+
+
+6. Languages Section
+Users should list languages and level:
+                                                                              * Basic
+
+                                                                              * Intermediate
+
+                                                                              * Fluent
+
+________________
+
+
+7. References Section
+Users should include:
+                                                                                 * Name of referee
+
+                                                                                 * Relationship
+
+                                                                                 * Contact (with permission)
+
+________________
+
+
+KB-CV-3: AI Step-by-Step Coaching Flow
+When a user requests help:
+                                                                                    1. Ask what job they want
+
+                                                                                    2. Ask about experience
+
+                                                                                    3. Ask about skills
+
+                                                                                    4. Ask about education
+
+                                                                                    5. Ask about languages
+
+Then generate the CV in simple, clean language.
+________________
+
+
+KB-CV-4: AI Safety Rules
+AI must never:
+                                                                                       * Encourage lying
+
+                                                                                       * Create fake experience
+
+                                                                                       * Invent fake references
+
+                                                                                       * Ask for unnecessary private data
+
+________________
+
+
+KB-CV-5: Tone of the AI
+The AI should always be:
+                                                                                          * Encouraging
+
+                                                                                          * Respectful
+
+                                                                                          * Clear
+
+                                                                                          * Simple
+
+                                                                                          * Non-judgmental
+
+JOB SEEKER PROFILE & CV FAQ
+________________
+
+
+Job Seeker Profile Completion – FAQ
+Q: Why do I need to complete my job seeker profile?
+ A: Completing your profile helps Kozi match you with the right jobs and helps employers trust your identity and skills.
+________________
+
+
+Q: What information is required to complete my profile?
+ A: You must provide:
+                                                                                             * First name and last name
+
+                                                                                             * Parents’ names
+
+                                                                                             * Date of birth
+
+                                                                                             * Phone number
+
+                                                                                             * Gender
+
+                                                                                             * Full location (Province, District, Sector, Cell, Village)
+
+                                                                                             * Work category
+
+                                                                                             * Skills and experience
+
+________________
+
+
+Q: Why do I need to upload my ID card?
+ A: Your ID helps Kozi verify your identity and protect employers and workers from fraud.
+________________
+
+
+Q: Why should I upload a profile photo?
+ A: A clear photo helps employers trust your profile and easily recognize you.
+________________
+
+
+Q: What should I write in “Skills and Capabilities”?
+ A: You should list what you know how to do, such as cleaning, cooking, driving, childcare, repairs, and soft skills like honesty and time management.
+________________
+
+
+Q: Can I edit my job seeker profile later?
+ A: Yes. You can update your information at any time from your dashboard.
+________________
+
+
+Q: What happens if I leave my profile incomplete?
+ A: You may not receive job matches or be approved for applications.
+________________
+
+
+Q: Is my profile visible to employers?
+ A: Only safe and necessary information is shown to employers. Your private data is protected.
+________________
+
+
+Job Seeker CV Creation – FAQ
+Q: What is a CV?
+ A: A CV is a document that shows your skills, experience, and work history so employers can understand you better.
+________________
+
+
+Q: Do I need a CV to get a job?
+ A: A CV is not mandatory, but it greatly increases your chances of getting hired.
+________________
+
+
+Q: Can beginners create a CV without experience?
+ A: Yes. Even informal work like helping families, neighbors, or small businesses counts as experience.
+________________
+
+
+Q: What should be included in my CV?
+ A: Your CV should include:
+                                                                                                * Your full name
+
+                                                                                                * Phone number
+
+                                                                                                * Location (general)
+
+                                                                                                * Job title
+
+                                                                                                * Skills
+
+                                                                                                * Work experience
+
+                                                                                                * Education
+
+                                                                                                * Languages
+
+                                                                                                * References
+
+________________
+
+
+Q: How should I write my professional summary?
+ A: Write 2–4 short sentences about:
+                                                                                                   * Your main skills
+
+                                                                                                   * Your experience
+
+                                                                                                   * Your work attitude
+
+________________
+
+
+Q: How do I list my work experience?
+ A: Include:
+                                                                                                      * Job title
+
+                                                                                                      * Place of work
+
+                                                                                                      * Years worked
+
+                                                                                                      * Main responsibilities
+
+________________
+
+
+Q: What are soft skills and should I include them?
+ A: Soft skills are personal qualities like honesty, teamwork, and communication. Yes, they make your CV stronger.
+________________
+
+
+Q: Can Kozi help me write my CV?
+ A: Yes. Kozi’s AI assistant can help you step by step.
+________________
+
+
+Q: What mistakes should I avoid in my CV?
+ A: Avoid:
+                                                                                                         * Lying about experience
+
+                                                                                                         * Using rude words
+
+                                                                                                         * Fake references
+
+                                                                                                         * Poor spelling
+
+________________
+
+
+Q: Can I update my CV later?
+ A: Yes. You can improve and update your CV at any time.
+________________
+
+
+Job Seeker Account & Profile Safety – FAQ
+Q: Is my personal data safe?
+ A: Yes. Kozi protects your data and follows strict data protection laws.
+________________
+
+
+Q: Can I delete my account?
+ A: Yes. You can request account deletion by contacting support.
+________________
+
+
+Q: Who can see my uploaded documents?
+ A: Only Kozi verification staff and approved systems can access your documents.

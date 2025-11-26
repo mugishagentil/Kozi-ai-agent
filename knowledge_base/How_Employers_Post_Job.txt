@@ -1,0 +1,297 @@
+﻿How_Employers_Post_Job
+________________
+
+
+Purpose
+This guide helps employers understand how to correctly post a job on the Kozi platform so they can quickly receive qualified worker applications.
+________________
+
+
+Step 1: Open the Job Posting Page
+AI should instruct the user:
+“On the left sidebar, click on ‘Add Job’ to open the job posting form.”
+________________
+
+
+Step 2: Fill in Job Title
+Field: Job Title
+What to add:
+* Clear job name
+Examples:
+
+* Cleaner
+
+* Housemaid
+
+* Driver
+
+* Office Assistant
+
+* IT Technician
+
+Why it matters:
+   * Helps workers understand the role
+
+   * Improves search visibility
+
+________________
+
+
+Step 3: Fill Company Name / Your Name
+Field: Company Name / Your Name
+What to add:
+      * If individual → Your full name
+
+      * If business → Registered business name
+
+Purpose:
+         * Identifies who is hiring
+
+         * Builds trust with applicants
+
+________________
+
+
+Step 4: Select Working Mode
+Field: Working Mode
+Options may include:
+            * Full-time
+
+            * Part-time
+
+            * Contract
+
+            * One-time job
+
+Purpose:
+               * Helps workers know the job schedule
+
+________________
+
+
+Step 5: Select Deadline Date
+Field: Deadline Date
+Format: DD/MM/YYYY
+Example format:
+                  * 30/12/2025
+
+Purpose:
+                     * Tells workers when applications close
+
+________________
+
+
+Step 6: Select Job Category
+Field: Category
+Examples:
+                        * Basic Workers
+
+                        * Professional Workers
+
+                        * Technical Services
+
+Purpose:
+                           * Organizes jobs
+
+                           * Improves matching accuracy
+
+________________
+
+
+Step 7: Upload Logo (If Applicable)
+Field: Logo (optional)
+Rules:
+                              * Maximum file size: 1MB
+
+                              * Accepted formats: JPG, PNG
+
+Who should upload:
+                                 * Companies or organizations may upload their logo
+
+                                 * Individuals can skip this field
+
+________________
+
+
+Step 8: Write Job Description
+Field: Job Description
+What to include:
+                                    * Summary of job
+
+                                    * Work environment
+
+                                    * Type of tasks
+
+Example structure:
+“This role involves maintaining cleanliness and hygiene in the workplace and supporting daily operations.”
+________________
+
+
+Step 9: Add Job Requirements
+Field: Requirements
+What to include:
+                                       * Experience level
+
+                                       * Education level (if needed)
+
+                                       * Special skills (if any)
+
+Examples:
+                                          * Previous experience preferred
+
+                                          * Good communication skills
+
+                                          * Basic reading and writing
+
+________________
+
+
+Step 10: Add Job Responsibilities
+Field: Responsibility
+What to include:
+                                             * Daily tasks
+
+                                             * Main duties
+
+Examples:
+                                                * Cleaning rooms
+
+                                                * Preparing meals
+
+                                                * Supervising children
+
+                                                * Driving safely
+
+________________
+
+
+Step 11: Set Salary Range
+Fields:
+                                                   * Salary Min
+
+                                                   * Salary Max
+
+What to enter:
+                                                      * Minimum amount offered
+
+                                                      * Maximum amount offered
+
+Importance:
+                                                         * Helps workers know expected pay
+
+                                                         * Reduces salary conflicts
+
+________________
+
+
+Step 12: Write Conclusion
+Field: Conclusion
+What to write:
+                                                            * A short closing message for applicants
+
+Examples:
+                                                               * “Only serious candidates should apply.”
+
+                                                               * “We look forward to working with responsible applicants.”
+
+________________
+
+
+Step 13: Submit the Job
+Final action:
+Click Post Job or Submit button to publish the job.
+Once submitted:
+✅ Workers can view the job
+✅ Applications can start arriving
+KOZI – EMPLOYER “POST A JOB” FAQ
+________________
+
+
+Q: How do I start posting a job on Kozi?
+A: Click “Add Job” on the left sidebar. This opens the job posting form where you can enter job details.
+________________
+
+
+Q: What should I write in the “Job Title” field?
+A: Write a clear job role such as Cleaner, Driver, Housemaid, Office Assistant, Technician, or Babysitter. This helps workers understand the position.
+________________
+
+
+Q: What do I put in “Company Name / Your Name”?
+A: If you are an individual, enter your full name.
+If you are a business, enter your registered company name.
+________________
+
+
+Q: What is “Working Mode” and what should I choose?
+A: Working Mode describes the type of work schedule. You can choose:
+                                                                  * Full-time
+
+                                                                  * Part-time
+
+                                                                  * Contract
+
+                                                                  * One-time job
+
+________________
+
+
+Q: Why do I need to set a Deadline Date?
+A: The deadline date tells workers the last day they can apply for the job. It must be entered in DD/MM/YYYY format.
+________________
+
+
+Q: Why do I need to select a Category?
+A: The category helps the system organize jobs and show your post to the right type of workers.
+________________
+
+
+Q: Is the logo upload required?
+A: No. The logo is optional.
+Businesses and organizations can upload their logo.
+Maximum allowed file size is 1MB.
+________________
+
+
+Q: What should I write in the Job Description?
+A: Write a short explanation of the job, work environment, and general tasks the worker will perform.
+________________
+
+
+Q: What is the difference between Requirements and Responsibilities?
+A:
+                                                                     * Requirements = Skills or experience needed for the job
+
+                                                                     * Responsibilities = Daily tasks the worker will do
+
+________________
+
+
+Q: Why do I need to add Salary Minimum and Maximum?
+A: Adding salary ranges helps workers understand the expected pay and reduces misunderstandings during hiring.
+________________
+
+
+Q: What should I write in the Conclusion field?
+A: Write a short closing message such as:
+                                                                        * “Only serious applicants should apply.”
+
+                                                                        * “We look forward to working with responsible candidates.”
+
+________________
+
+
+Q: How do I finish posting the job?
+A: After filling all fields, click the Post Job or Submit button. Your job will then be visible to workers.
+________________
+
+
+Q: What happens after I post a job?
+A: Workers can start applying, and you will receive applications through the platform.
+________________
+
+
+Q: Can I edit a job after posting it?
+A: Yes. You can edit or update your job post from your dashboard.
+Q: Is there an official Kozi job request form?
+A: Yes. Kozi also supports job posting using the official internal form:

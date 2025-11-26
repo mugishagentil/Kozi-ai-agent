@@ -94,8 +94,7 @@ export default {
       // Actions
       startNewChat: originalStartNewChat,
       sendMessage: originalSendMessage,
-      sendSuggestion: originalSendSuggestion,
-      loadChatHistory
+      sendSuggestion: originalSendSuggestion
     } = useKoziChat()
 
     // Enhanced startNewChat that sets isNewChat to true
@@ -104,46 +103,11 @@ export default {
       originalStartNewChat()
     }
     
-    // Watch route query to detect new chat or session load
+    // Watch route query to detect new chat
     watch(
       () => route.query.sessionId,
       async (sessionId, oldSessionId) => {
         console.log('🔄 Route sessionId changed:', { oldSessionId, sessionId, path: route.path, fullPath: route.fullPath })
-        
-        // If we have a sessionId in the URL, load that chat
-        if (sessionId) {
-          console.log('📂 Loading chat from URL sessionId:', sessionId)
-          isNewChat.value = false
-          
-          // Find the session in history
-          const sessionInHistory = history.value.find(
-            h => String(h.sessionId) === String(sessionId)
-          )
-          
-          if (sessionInHistory) {
-            try {
-              await loadChatHistory(sessionInHistory)
-              console.log('✅ Loaded chat from history:', sessionInHistory)
-            } catch (error) {
-              console.error('❌ Failed to load chat from URL:', error)
-              // If loading fails, show welcome screen
-              isNewChat.value = true
-              startNewChat()
-            }
-          } else {
-            console.log('⚠️ Session not found in history, will try to load from backend')
-            // Try to load even if not in history (might be from direct URL)
-            try {
-              await loadChatHistory({ sessionId: String(sessionId) })
-              isNewChat.value = false
-            } catch (error) {
-              console.error('❌ Failed to load chat:', error)
-              isNewChat.value = true
-              startNewChat()
-            }
-          }
-          return
-        }
         
         // If sessionId was removed (went from having one to not having one), start new chat
         if (oldSessionId && !sessionId) {

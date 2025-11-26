@@ -35,36 +35,6 @@
                   <span>New Chat</span>
                 </a>
               </li>
-              <!-- History Section -->
-              <li class="history-section">
-                <div class="history-header">
-                  <span>HISTORY</span>
-                </div>
-                <div v-if="loadingHistory" class="empty-history">
-                  <p>Loading chats...</p>
-                </div>
-                <div v-else-if="chatHistory.length > 0" class="chat-history-list">
-                  <div
-                    v-for="(chat, index) in chatHistory"
-                    :key="chat.sessionId || index"
-                    class="chat-history-item"
-                    :class="{ 'active': String(currentSessionId) === String(chat.sessionId) }"
-                    @click="loadChat(chat)"
-                  >
-                    <span class="chat-title">{{ chat.title || 'Untitled Chat' }}</span>
-                    <button 
-                      class="delete-chat-btn"
-                      @click.stop="deleteChat(chat)"
-                      title="Delete this chat"
-                    >
-                      <i class="fas fa-trash"></i>
-                    </button>
-                  </div>
-                </div>
-                <div v-else class="empty-history">
-                  <p>No chats yet</p>
-                </div>
-              </li>
             </ul>
           </template>
           <!-- Regular Menu Items -->
@@ -97,25 +67,13 @@
     </nav>
   </aside>
   
-  <!-- Delete Chat Modal -->
-  <DeleteChatModal
-    :visible="showDeleteModal"
-    :chat-title="chatToDelete?.title || 'Untitled Chat'"
-    :deleting="deletingChat"
-    @confirm="confirmDelete"
-    @cancel="cancelDelete"
-  />
 </template>
 
 <script>
 import { useRoute, useRouter } from 'vue-router';
-import { ref, onMounted, onUnmounted, watch } from 'vue';
-import DeleteChatModal from '@/components/DeleteChatModal.vue';
+import { ref, onMounted } from 'vue';
 
 export default {
-  components: {
-    DeleteChatModal
-  },
   props: {
     visible: Boolean,
   },
@@ -124,24 +82,7 @@ export default {
     const route = useRoute();
     const router = useRouter();
     const aiDropdownOpen = ref(false);
-    const chatHistory = ref([]);
-    const currentSessionId = ref(null);
-    const loadingHistory = ref(false);
-    const userId = ref(null);
-    const showDeleteModal = ref(false);
-    const chatToDelete = ref(null);
-    const deletingChat = ref(false);
     
-    // Determine API base - use same logic as useKoziChat for consistency
-    // Check if we're in development (localhost) or production (Railway)
-    const getApiBase = () => {
-      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        return 'http://localhost:5050/api'
-      }
-      // Production - use Railway (where chat history is stored)
-      return 'https://kozi-ai-agent-production.up.railway.app/api'
-    }
-    const API_BASE = getApiBase()
 
     const menuItems = [
       {
@@ -193,19 +134,8 @@ export default {
       return matchPrefix.some(prefix => route.path.startsWith(prefix));
     };
 
-    const toggleAIDropdown = async () => {
+    const toggleAIDropdown = () => {
       aiDropdownOpen.value = !aiDropdownOpen.value;
-      console.log('🔄 Agent Sidebar: AI dropdown toggled, open:', aiDropdownOpen.value);
-      // Always reload history when opening dropdown to ensure it's up to date
-      if (aiDropdownOpen.value) {
-        if (userId.value) {
-          console.log('📋 Agent Sidebar: Reloading history on dropdown open');
-          await loadChatHistory();
-        } else {
-          console.log('⚠️ Agent Sidebar: No user ID, getting it first...');
-          await getUserId();
-        }
-      }
     };
 
     const handleAIClick = (item) => {
@@ -218,227 +148,19 @@ export default {
       toggleAIDropdown();
     };
 
-    const getUserId = async () => {
-      try {
-        const token = localStorage.getItem("agentToken") || localStorage.getItem("adminToken");
-        if (!token) {
-          console.warn('⚠️ Agent Sidebar: No token found');
-          return;
-        }
-        
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        const userEmail = payload.email;
-        console.log('📧 Agent Sidebar: Getting user ID for email:', userEmail);
-
-        // Get user ID from external API (same as composable and other sidebars)
-        const userIdUrl = `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`;
-        console.log('📧 Agent Sidebar: Fetching userId from:', userIdUrl);
-        
-        const res = await fetch(userIdUrl, {
-          headers: { 
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}` 
-          },
-        });
-        
-        if (!res.ok) {
-          const errorText = await res.text();
-          console.error('❌ Agent Sidebar: User ID fetch failed:', res.status, errorText);
-          throw new Error(`Failed to fetch user ID: ${res.status}`);
-        }
-        
-        const data = await res.json();
-        console.log('📋 Agent Sidebar: User ID response:', data);
-
-        if (data.users_id) {
-          userId.value = data.users_id;
-          console.log('✅ Agent Sidebar: Got user ID:', userId.value);
-          // Load chat history immediately after getting user ID
-          console.log('📋 Agent Sidebar: Loading chat history after getting user ID');
-          await loadChatHistory();
-        } else {
-          console.warn('⚠️ Agent Sidebar: No user ID in response:', data);
-        }
-      } catch (err) {
-        console.error("❌ Agent Sidebar: Error getting user ID:", err);
-      }
-    };
-
-    const loadChatHistory = async () => {
-      if (!userId.value || loadingHistory.value) return;
-      
-      loadingHistory.value = true;
-      try {
-        const token = localStorage.getItem("agentToken") || localStorage.getItem("adminToken");
-        const url = `${API_BASE}/admin/chat/sessions?users_id=${userId.value}`;
-        console.log('📋 Agent Sidebar: Loading chat history from:', url);
-        
-        const res = await fetch(url, {
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        
-        console.log('📋 Agent Sidebar: Response status:', res.status);
-        
-        if (res.ok) {
-          const data = await res.json();
-          console.log('📋 Agent Sidebar: Response data:', data);
-          
-          if (data.sessions && Array.isArray(data.sessions)) {
-            console.log(`✅ Agent Sidebar: Found ${data.sessions.length} chat sessions`);
-            chatHistory.value = data.sessions.map(session => ({
-              sessionId: String(session.id),
-              title: session.title || 'New Chat',
-              createdAt: session.created_at || session.createdAt,
-              lastMessage: session.last_message || ''
-            })).sort((a, b) => {
-              const dateA = new Date(a.createdAt || 0);
-              const dateB = new Date(b.createdAt || 0);
-              return dateB - dateA;
-            });
-            console.log('✅ Agent Sidebar: Loaded chat history:', chatHistory.value.length, 'sessions');
-          } else {
-            console.warn('⚠️ Agent Sidebar: No sessions array in response:', data);
-            chatHistory.value = [];
-          }
-        } else {
-          const errorText = await res.text();
-          console.error('❌ Agent Sidebar: Error loading chat history:', res.status, errorText);
-          chatHistory.value = [];
-        }
-      } catch (err) {
-        console.error("Error loading chat history:", err);
-      } finally {
-        loadingHistory.value = false;
-      }
-    };
 
     const handleNewChat = () => {
       emit('close-sidebar');
-      console.log('🆕 Agent: New Chat clicked, navigating to welcome page...');
-      
-      // Check if we're already on the AI page
-      if (route.path === '/agent/ai-agent' && route.query.sessionId) {
-        // If we're already on the AI page with a sessionId, replace to clear it
-        console.log('🔄 Already on AI page, replacing route to clear sessionId');
-        router.replace({ 
-          path: '/agent/ai-agent', 
-          query: {} 
-        }).then(() => {
-          // Dispatch event to trigger new chat
-          window.dispatchEvent(new CustomEvent('newChatRequested'));
-        });
-      } else {
-        // Navigate to AI page without sessionId
-        console.log('🔄 Navigating to AI page for new chat');
-        router.push({ 
-          path: '/agent/ai-agent', 
-          query: {} 
-        }).then(() => {
-          // Dispatch event to trigger new chat
-          window.dispatchEvent(new CustomEvent('newChatRequested'));
-        });
-      }
-    };
-
-    const loadChat = (chat) => {
-      router.push({
-        path: '/agent/ai-agent',
-        query: { sessionId: chat.sessionId }
+      router.push({ 
+        path: '/agent/ai-agent', 
+        query: {} 
+      }).then(() => {
+        window.dispatchEvent(new CustomEvent('newChatRequested'));
       });
     };
 
-    const deleteChat = (chat) => {
-      // Show the modal instead of browser confirm
-      chatToDelete.value = chat;
-      showDeleteModal.value = true;
-    };
-    
-    const confirmDelete = async () => {
-      if (!chatToDelete.value) return;
-      
-      deletingChat.value = true;
-      try {
-        const token = localStorage.getItem("agentToken") || localStorage.getItem("adminToken");
-        const res = await fetch(`${API_BASE}/admin/chat/session/${chatToDelete.value.sessionId}`, {
-          method: 'DELETE',
-          headers: { 
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        
-        if (res.ok) {
-          chatHistory.value = chatHistory.value.filter(c => c.sessionId !== chatToDelete.value.sessionId);
-          console.log('✅ Chat deleted successfully');
-        } else {
-          const errorText = await res.text();
-          console.error('❌ Failed to delete chat:', res.status, errorText);
-          alert("Failed to delete chat. Please try again.");
-        }
-      } catch (err) {
-        console.error("❌ Error deleting chat:", err);
-        alert("Failed to delete chat. Please try again.");
-      } finally {
-        deletingChat.value = false;
-        showDeleteModal.value = false;
-        chatToDelete.value = null;
-      }
-    };
-    
-    const cancelDelete = () => {
-      showDeleteModal.value = false;
-      chatToDelete.value = null;
-      deletingChat.value = false;
-    };
-
-    // Watch route to update currentSessionId
-    watch(
-      () => route.query.sessionId,
-      (sessionId) => {
-        currentSessionId.value = sessionId ? String(sessionId) : null;
-      },
-      { immediate: true }
-    );
-
-    const handleChatHistoryUpdate = async () => {
-      // Reload chat history when a new message is sent
-      console.log('📢 Agent Sidebar: Chat history updated event received');
-      console.log('📢 Agent Sidebar: Current userId:', userId.value);
-      console.log('📢 Agent Sidebar: Current loadingHistory:', loadingHistory.value);
-      if (userId.value) {
-        console.log('📢 Agent Sidebar: Reloading history due to update event');
-        // Add a small delay to ensure backend has processed the new session
-        setTimeout(async () => {
-          await loadChatHistory();
-          console.log('✅ Agent Sidebar: History reload completed. Sessions:', chatHistory.value.length);
-        }, 300);
-      } else {
-        console.warn('⚠️ Agent Sidebar: Cannot reload history - no user ID');
-        await getUserId();
-        if (userId.value) {
-          setTimeout(async () => {
-            await loadChatHistory();
-            console.log('✅ Agent Sidebar: History reload completed after getting userId. Sessions:', chatHistory.value.length);
-          }, 300);
-        }
-      }
-    };
-
     onMounted(() => {
-      console.log('🟢 Agent Sidebar mounted, initializing...');
-      getUserId();
-      // Set currentSessionId from route query
-      if (route.query.sessionId) {
-        currentSessionId.value = String(route.query.sessionId);
-      }
-      // Listen for chat history updates
-      window.addEventListener('chatHistoryUpdated', handleChatHistoryUpdate);
-    });
-
-    onUnmounted(() => {
-      window.removeEventListener('chatHistoryUpdated', handleChatHistoryUpdate);
+      console.log('🟢 Agent Sidebar mounted');
     });
 
     return {
@@ -447,19 +169,9 @@ export default {
       menuItems,
       isActive,
       aiDropdownOpen,
-      chatHistory,
-      currentSessionId,
-      loadingHistory,
-      showDeleteModal,
-      chatToDelete,
-      deletingChat,
       toggleAIDropdown,
       handleAIClick,
       handleNewChat,
-      loadChat,
-      deleteChat,
-      confirmDelete,
-      cancelDelete,
     };
   },
 };
@@ -702,100 +414,6 @@ export default {
   padding-left: 2rem;
 }
 
-/* History Section */
-.history-section {
-  padding: 0.5rem;
-}
-
-.history-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem 0.75rem;
-  margin-bottom: 0.5rem;
-}
-
-.history-header span {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #666;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* Chat History List */
-.chat-history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.chat-history-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem;
-  margin: 0 0.25rem;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.2s ease;
-  background: white;
-  border: 1px solid #e9ecef;
-}
-
-.chat-history-item:hover {
-  background: #f8f9fa;
-}
-
-.chat-history-item.active {
-  background: #E960A6;
-  color: white;
-  border-color: #E960A6;
-}
-
-.chat-title {
-  flex: 1;
-  font-size: 0.875rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-right: 0.5rem;
-}
-
-.delete-chat-btn {
-  background: none;
-  border: none;
-  color: #999;
-  cursor: pointer;
-  padding: 0.25rem;
-  opacity: 0;
-  transition: opacity 0.2s ease, color 0.2s ease;
-}
-
-.chat-history-item:hover .delete-chat-btn {
-  opacity: 1;
-}
-
-.chat-history-item.active .delete-chat-btn {
-  color: white;
-  opacity: 1;
-}
-
-.delete-chat-btn:hover {
-  color: #E960A6;
-}
-
-.chat-history-item.active .delete-chat-btn:hover {
-  color: #ffb3d9;
-}
-
-/* Empty History */
-.empty-history {
-  padding: 1rem;
-  text-align: center;
-  color: #999;
-  font-size: 0.875rem;
-}
 
 .empty-history p {
   margin: 0;

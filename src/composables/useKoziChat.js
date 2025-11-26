@@ -1,28 +1,11 @@
 // src/composables/useKoziChat.js
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
-const LAST_ACTIVE_SESSION_KEY = 'kozi_last_active_session'
-
-// Save last active session to localStorage
-function saveLastActiveSession(sessionId) {
-  if (!sessionId) return
-  localStorage.setItem(LAST_ACTIVE_SESSION_KEY, JSON.stringify({
-    sessionId,
-    timestamp: Date.now()
-  }))
-}
-
-// Clear last active session
-function clearLastActiveSession() {
-  localStorage.removeItem(LAST_ACTIVE_SESSION_KEY)
-}
 
 export function useKoziChat() {
   // Reactive state
   const currentUser = ref(null)
-  const currentSession = ref(null)
   const messages = ref([])
-  const history = ref([])
   const chatStarted = ref(false)
   const loading = ref(false)
   const error = ref(null)
@@ -118,59 +101,14 @@ export function useKoziChat() {
     }
   }
 
-  // Load history from backend on mount (source of truth)
+  // Initialize on mount
   onMounted(async () => {
     // Update role detection on mount
     updateRoleFromURL()
     
-    // Initialize user first
+    // Initialize user
     await initializeUser()
-    
-    // Always prioritize loading from backend (source of truth)
-    if (currentUser.value) {
-      await loadHistoryFromBackend()
-    } else {
-      // Fallback to localStorage if user not initialized yet
-    const savedHistory = localStorage.getItem('kozi-chat-history')
-    if (savedHistory) {
-      try {
-        const parsedHistory = JSON.parse(savedHistory)
-        history.value = parsedHistory.map(item => ({
-          ...item,
-          timestamp: item.timestamp || new Date(item.createdAt).getTime() || Date.now(),
-          createdAt: item.createdAt || new Date(item.timestamp) || new Date()
-        }))
-          console.log('Loaded localStorage chat history (fallback):', history.value)
-      } catch (e) {
-        console.warn('Failed to load localStorage chat history:', e)
-        history.value = []
-      }
-    } else {
-      history.value = []
-    }
-    
-      // Try loading from backend once user is available
-      setTimeout(async () => {
-    if (currentUser.value) {
-      await loadHistoryFromBackend()
-        }
-      }, 1000)
-    }
-    
-    // Note: We no longer auto-restore the last active session
-    // Chat sessions should only be loaded when explicitly requested via URL query parameter
-    // This prevents conversations from auto-opening after refresh or logout/login
   })
-
-  watch(
-    history,
-    (newHistory) => {
-      if (newHistory.length > 0) {
-        localStorage.setItem('kozi-chat-history', JSON.stringify(newHistory))
-      }
-    },
-    { deep: true },
-  )
 
 const initializeUser = async () => {
   try {
@@ -221,100 +159,13 @@ const initializeUser = async () => {
     messages.value.push({ sender: 'user', text })
   }
 
-  const generateChatTitle = (firstMessage) => {
-    if (!firstMessage) return 'New Chat'
-
-    let title = firstMessage.trim()
-    title = title.replace(
-      /^(how|what|when|where|why|can|could|would|should|tell me|help me)\s+/i,
-      '',
-    )
-    title = title.charAt(0).toUpperCase() + title.slice(1)
-
-    if (title.length > 50) {
-      title = title.substring(0, 47) + '...'
-    }
-
-    return title || 'New Chat'
-  }
-
-  const saveCurrentChatToHistory = async () => {
-    if (!currentSession.value || messages.value.length === 0) return
-
-    const firstUserMessage = messages.value.find((m) => m.sender === 'user')?.text
-    
-    // Use the current title if available and meaningful, otherwise generate from first message
-    let finalTitle = currentChatTitle.value
-    if (!finalTitle || finalTitle === 'New Chat') {
-      if (firstUserMessage) {
-        // Generate a meaningful title from the first user message
-        finalTitle = generateChatTitle(firstUserMessage)
-      } else {
-        finalTitle = 'New Chat'
-      }
-    }
-
-    const lastMessage = messages.value[messages.value.length - 1]
-    let cleanLastMessage = ''
-
-    if (lastMessage) {
-      if (lastMessage.sender === 'user') {
-        cleanLastMessage = lastMessage.text
-      } else {
-        cleanLastMessage = stripHtmlAndFormat(lastMessage.text)
-      }
-    }
-
-    const currentTimestamp = Date.now()
-
-    const chatEntry = {
-      sessionId: currentSession.value,
-      title: finalTitle,
-      date: new Date().toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-      timestamp: currentTimestamp,
-      messageCount: messages.value.length,
-      lastMessage: cleanLastMessage.substring(0, 100),
-      createdAt: new Date(currentTimestamp)
-    }
-
-    // Update local history immediately
-    const filtered = history.value.filter((item) => item.sessionId !== currentSession.value)
-    history.value = [chatEntry, ...filtered].slice(0, 50)
-    localStorage.setItem('kozi-chat-history', JSON.stringify(history.value))
-    
-    // Reload from backend to ensure sync (backend is source of truth)
-    if (currentUser.value) {
-      try {
-        // Small delay to ensure backend has saved the message
-        setTimeout(async () => {
-          await loadHistoryFromBackend()
-        }, 500)
-      } catch (e) {
-        console.warn('Failed to sync history with backend:', e)
-      }
-    }
-
-    console.log('Saved chat to history:', chatEntry)
-  }
 
   const startNewChat = async () => {
-    // Save current chat to history if it has messages
-    if (currentSession.value && messages.value.length > 0) {
-      saveCurrentChatToHistory()
-    }
-
     // Reset all state immediately - like other AI chatbots
     messages.value = []
-    currentSession.value = null
     chatStarted.value = false
     error.value = null
     currentChatTitle.value = 'New Chat'
-    clearLastActiveSession() // Clear last active session so it doesn't auto-restore
     loading.value = false // Don't show loading for new chat - just show welcome screen
     
     // Initialize user if needed (but don't create session yet)
@@ -338,9 +189,26 @@ const initializeUser = async () => {
 
     console.log('Sending message:', text)
 
+    // ✅ Add user message IMMEDIATELY so it appears right away
+    addUserMessage(text)
+
+    // ✅ Create bot message placeholder IMMEDIATELY with typing indicator
+    // This ensures the typing indicator shows right away
+    const botMessageIndex = messages.value.length
+    messages.value.push({ 
+      sender: 'assistant', 
+      text: '',
+      streaming: true 
+    })
+
+    // Set loading state immediately so typing indicator shows
+    loading.value = true
+    error.value = null
+    streamingMessage.value = ''
+
     // Auto-start chat if needed
-    if (!chatStarted.value || !currentSession.value) {
-      console.log('Auto-starting chat session with first message:', text)
+    if (!chatStarted.value) {
+      console.log('Starting chat with first message:', text)
       
       // If users_id is missing, try to fetch it first (for admin users)
       let users_id = currentUser.value.users_id;
@@ -410,6 +278,37 @@ const initializeUser = async () => {
                 console.warn('⚠️ Error fetching userId from API:', fetchError.message || fetchError);
               }
             }
+            
+            // Step 3: If still no users_id, try backend endpoint (requires Authorization header)
+            if (!users_id && token) {
+              try {
+                console.log('🔍 Step 3: Attempting to fetch userId from backend endpoint...');
+                const resBackend = await fetchWithTimeout(
+                  `${API_BASE}/user/id`,
+                  {
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${token}`,  // CRITICAL: Backend needs this to extract user ID
+                    },
+                    timeout: 5000
+                  }
+                );
+                
+                if (resBackend.ok) {
+                  const dataBackend = await resBackend.json();
+                  if (dataBackend.users_id) {
+                    users_id = dataBackend.users_id;
+                    currentUser.value.users_id = users_id; // Update current user
+                    console.log('✅ Fetched users_id from backend endpoint:', users_id);
+                  }
+                } else {
+                  const errorText = await resBackend.text();
+                  console.warn('⚠️ Backend user ID fetch failed:', resBackend.status, errorText);
+                }
+              } catch (fetchError) {
+                console.warn('⚠️ Error fetching user ID from backend:', fetchError.message || fetchError);
+              }
+            }
           }
           
           if (!users_id) {
@@ -427,49 +326,44 @@ const initializeUser = async () => {
           );
           
           if (!hasErrorAlready) {
-            addBotMessage('Sorry, I could not retrieve your user information. Please refresh the page and try again. If the issue persists, please log out and log in again.');
+            // Update the placeholder message with error instead of adding new one
+            if (messages.value[botMessageIndex]) {
+              messages.value[botMessageIndex].text = 'Sorry, I could not retrieve your user information. Please refresh the page and try again. If the issue persists, please log out and log in again.'
+              messages.value[botMessageIndex].streaming = false
+            } else {
+              addBotMessage('Sorry, I could not retrieve your user information. Please refresh the page and try again. If the issue persists, please log out and log in again.')
+            }
           }
+          loading.value = false
           return;
         }
       }
       
       try {
         loading.value = true
-        // Pass the actual first message so backend can generate a meaningful title
-        const data = await startSession(users_id, text, getApiPrefix())
-
-        if (data?.data?.session_id) {
-          currentSession.value = data.data.session_id
-          chatStarted.value = true
-          saveLastActiveSession(data.data.session_id)
-          
-          // Update title if backend provided one
-          if (data?.data?.title) {
-            currentChatTitle.value = data.data.title
-            console.log('✅ Received title from backend:', data.data.title)
-          }
-          
-          // Dispatch event immediately after session creation so sidebar can load history
-          console.log('📢 Dispatching chatHistoryUpdated event after session creation')
-          window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
-            detail: { sessionId: data.data.session_id }
-          }))
-        } else {
-          throw new Error('Failed to start session')
-        }
+        chatStarted.value = true
       } catch (e) {
         console.error('❌ Auto-start failed:', e)
+        console.error('❌ Error stack:', e.stack)
+        console.error('❌ Error name:', e.name)
         console.error('❌ Error details:', {
           message: e.message,
+          name: e.name,
           users_id: users_id,
           apiPrefix: getApiPrefix(),
-          hasToken: !!localStorage.getItem('employeeToken') || !!localStorage.getItem('employerToken') || !!localStorage.getItem('adminToken') || !!localStorage.getItem('agentToken')
+          hasToken: !!localStorage.getItem('employeeToken') || !!localStorage.getItem('employerToken') || !!localStorage.getItem('adminToken') || !!localStorage.getItem('agentToken'),
+          url: `${API_BASE}${getApiPrefix()}/new`
         })
         
         // Show more specific error message based on the error
         let errorMessage = 'Sorry, I could not connect right now. Please try again in a moment.'
-        if (e.message) {
-          if (e.message.includes('users_id')) {
+        
+        // Handle AbortError (timeout) specifically
+        if (e.name === 'AbortError' || e.message.includes('aborted') || e.message.includes('AbortError')) {
+          errorMessage = 'Request timed out. The server is taking too long to respond. Please try again.'
+          console.error('❌ Request was aborted (timeout) - this usually means the backend took longer than 30 seconds to respond')
+        } else if (e.message) {
+          if (e.message.includes('users_id') || e.message.includes('user ID') || e.message.includes('Invalid user')) {
             errorMessage = 'Unable to retrieve your user ID. Please refresh the page and try again.'
           } else if (e.message.includes('401') || e.message.includes('Unauthorized')) {
             errorMessage = 'Your session has expired. Please log in again.'
@@ -477,12 +371,22 @@ const initializeUser = async () => {
             errorMessage = 'You don\'t have permission to start a chat. Please check your account settings.'
           } else if (e.message.includes('500') || e.message.includes('Internal Server Error')) {
             errorMessage = 'Server error occurred. Please try again in a moment.'
-          } else if (e.message.includes('Network') || e.message.includes('fetch')) {
+          } else if (e.message.includes('Network') || e.message.includes('fetch') || e.message.includes('Failed to fetch')) {
             errorMessage = 'Network error. Please check your internet connection and try again.'
+          } else if (e.message.includes('404') || e.message.includes('Not Found')) {
+            errorMessage = 'Chat endpoint not found. Please refresh the page.'
+          } else {
+            errorMessage = `Connection error: ${e.message}. Please try again.`
           }
         }
         
-        addBotMessage(errorMessage)
+        // Update the placeholder message with error instead of adding new one
+        if (messages.value[botMessageIndex]) {
+          messages.value[botMessageIndex].text = errorMessage
+          messages.value[botMessageIndex].streaming = false
+        } else {
+          addBotMessage(errorMessage)
+        }
         loading.value = false
         return
       } finally {
@@ -490,35 +394,30 @@ const initializeUser = async () => {
       }
     }
 
-    // Add user message immediately
-    addUserMessage(text)
+    // User message and bot placeholder already added at the top of the function
+    // Loading state already set at the top
 
     const userMessages = messages.value.filter(m => m.sender === 'user')
     const isFirstUserMessage = userMessages.length === 1
 
-    // Create empty placeholder for streaming response
-    const botMessageIndex = messages.value.length
-    messages.value.push({ 
-      sender: 'assistant', 
-      text: '',
-      streaming: true 
-    })
-
-    loading.value = true
-    error.value = null
-    streamingMessage.value = ''
-
     try {
-      // 🚀 Call streaming API
+      // 🚀 Call streaming API - pass messages array for chat history
       await streamChatMessage(
-        currentSession.value, 
+        null, 
         text, 
         isFirstUserMessage,
         (chunk) => {
-          if (chunk) {
+          if (chunk && typeof chunk === 'string') {
             streamingMessage.value += chunk
-            messages.value[botMessageIndex].text = formatMessage(streamingMessage.value)
-            messages.value[botMessageIndex].streaming = true
+            // Ensure bot message index is valid before updating
+            if (botMessageIndex >= 0 && botMessageIndex < messages.value.length) {
+              messages.value[botMessageIndex].text = formatMessage(streamingMessage.value)
+              messages.value[botMessageIndex].streaming = true
+            } else {
+              console.error('❌ Invalid botMessageIndex in onChunk:', botMessageIndex, 'messages.length:', messages.value.length)
+            }
+          } else {
+            console.warn('⚠️ onChunk called with invalid chunk:', chunk)
           }
         },
         (jobs) => {
@@ -535,63 +434,35 @@ const initializeUser = async () => {
           if (title) {
             console.log('📝 Received title from backend:', title)
             currentChatTitle.value = title
-            
-            // Update in history if session exists
-            const sessionIndex = history.value.findIndex(
-              h => String(h.sessionId) === String(currentSession.value)
-            );
-            if (sessionIndex !== -1) {
-              history.value[sessionIndex].title = title;
-              localStorage.setItem('kozi-chat-history', JSON.stringify(history.value));
-              console.log('✅ Updated title in history:', title)
-            } else {
-              // If not in history yet, reload from backend
-              if (currentUser.value) {
-                setTimeout(async () => {
-                  await loadHistoryFromBackend()
-                }, 500)
-              }
-            }
           }
         },
-        getApiPrefix()
+        getApiPrefix(),
+        messages.value  // Pass messages array for chat history
       )
 
-      messages.value[botMessageIndex].streaming = false
-      
-      // Save to history after message completes (ensures persistence)
-      if (currentSession.value && messages.value.length > 0) {
-        saveCurrentChatToHistory()
-        
-        // Reload history from backend to get updated title and ensure sidebar syncs
-        // Also dispatch event to notify sidebars to reload
-        if (currentUser.value) {
-          // Dispatch event immediately first (sidebar can load in background)
-          console.log('📢 Dispatching chatHistoryUpdated event after message completion')
-          window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
-            detail: { sessionId: currentSession.value }
-          }))
-          
-          // Then reload from backend after a short delay
-          setTimeout(async () => {
-            console.log('🔄 Reloading history from backend after message')
-            await loadHistoryFromBackend()
-            
-            // Dispatch event again after backend sync to ensure sidebar has latest data
-            window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
-              detail: { sessionId: currentSession.value }
-            }))
-          }, 1500)
+      // Ensure bot message exists and set streaming to false
+      if (botMessageIndex >= 0 && botMessageIndex < messages.value.length) {
+        messages.value[botMessageIndex].streaming = false
+        // Ensure message has content
+        if (!messages.value[botMessageIndex].text || messages.value[botMessageIndex].text.trim() === '') {
+          console.warn('⚠️ Bot message is empty after streaming, using streamingMessage')
+          messages.value[botMessageIndex].text = formatMessage(streamingMessage.value || 'I apologize, but I could not generate a response. Please try again.')
         }
+      } else {
+        console.error('❌ Invalid botMessageIndex after streaming:', botMessageIndex, 'messages.length:', messages.value.length)
       }
 
     } catch (e) {
       console.error('❌ Failed to send message:', e)
+      console.error('❌ Error stack:', e.stack)
+      console.error('❌ Error name:', e.name)
       console.error('❌ Error details:', {
         message: e.message,
-        sessionId: currentSession.value,
+        name: e.name,
         apiPrefix: getApiPrefix(),
-        hasToken: !!localStorage.getItem('employeeToken') || !!localStorage.getItem('employerToken') || !!localStorage.getItem('adminToken') || !!localStorage.getItem('agentToken')
+        hasToken: !!localStorage.getItem('employeeToken') || !!localStorage.getItem('employerToken') || !!localStorage.getItem('adminToken') || !!localStorage.getItem('agentToken'),
+        botMessageIndex: botMessageIndex,
+        messagesLength: messages.value.length
       })
       
       // Provide more specific error messages based on error type
@@ -616,14 +487,31 @@ const initializeUser = async () => {
       }
       
       error.value = 'Failed to send message'
-      messages.value[botMessageIndex] = {
-        sender: 'assistant',
-        text: formatMessage(errorMessage),
-        streaming: false
+      
+      // Ensure bot message exists and is properly formatted
+      if (botMessageIndex >= 0 && botMessageIndex < messages.value.length) {
+        messages.value[botMessageIndex] = {
+          sender: 'assistant',
+          text: formatMessage(errorMessage),
+          streaming: false
+        }
+      } else {
+        // If bot message index is invalid, add error message
+        console.warn('⚠️ Bot message index invalid, adding error message directly')
+        messages.value.push({
+          sender: 'assistant',
+          text: formatMessage(errorMessage),
+          streaming: false
+        })
       }
     } finally {
       loading.value = false
       streamingMessage.value = ''
+      
+      // Ensure streaming is set to false for the bot message
+      if (botMessageIndex >= 0 && botMessageIndex < messages.value.length) {
+        messages.value[botMessageIndex].streaming = false
+      }
     }
   }
 
@@ -631,310 +519,17 @@ const initializeUser = async () => {
     await sendMessage(text)
   }
 
-  const loadChatHistory = async (historyItem) => {
-    if (!historyItem.sessionId) return
-
-    console.log('Loading chat history for session:', historyItem.sessionId)
-    
-    if (currentSession.value && messages.value.length > 0) {
-      saveCurrentChatToHistory()
-    }
-
-    loading.value = true
-    try {
-      const data = await getChatHistory(historyItem.sessionId, getApiPrefix())
-      console.log('Full response from getChatHistory:', data)
-
-      let loadedMessages = []
-      
-      if (data?.data?.messages && Array.isArray(data.data.messages)) {
-        loadedMessages = data.data.messages
-      } else if (data?.messages && Array.isArray(data.messages)) {
-        loadedMessages = data.messages
-      } else if (Array.isArray(data)) {
-        loadedMessages = data
-      }
-
-      if (loadedMessages.length > 0) {
-        const msgs = loadedMessages.map((m) => ({
-          sender: m.type === 'user' ? 'user' : 'assistant',
-          text: m.type === 'user' ? m.content : formatMessage(m.content || m.message || ''),
-        }))
-        
-        console.log('Processed messages:', msgs)
-        messages.value = msgs
-        currentSession.value = historyItem.sessionId
-        currentChatTitle.value = historyItem.title
-        chatStarted.value = true
-        saveLastActiveSession(historyItem.sessionId)
-      } else {
-        currentSession.value = historyItem.sessionId
-        currentChatTitle.value = historyItem.title
-        chatStarted.value = true
-        saveLastActiveSession(historyItem.sessionId)
-        messages.value = []
-      }
-    } catch (e) {
-      console.error('Failed to load history:', e)
-      currentSession.value = historyItem.sessionId
-      currentChatTitle.value = historyItem.title
-      chatStarted.value = true
-      saveLastActiveSession(historyItem.sessionId)
-      messages.value = []
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function getUserChatSessions(users_id) {
-    const url = `${API_BASE}${getApiPrefix()}/sessions?users_id=${users_id}`
-    console.log('📋 Fetching chat sessions from:', url)
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: getAuthHeaders(),
-    })
-    
-    if (!res.ok) {
-      const errorText = await res.text()
-      console.error('getUserChatSessions error:', res.status, errorText)
-      throw new Error(`getUserChatSessions failed: ${res.status}`)
-    }
-    
-    const data = await res.json()
-    console.log('📋 Received chat sessions:', data)
-    return data
-  }
-
-  const loadHistoryFromBackend = async () => {
-    if (!currentUser.value) {
-      console.warn('⚠️ Cannot load history: no current user')
-      return
-    }
-    
-    // If users_id is missing, try to fetch it first
-    if (!currentUser.value.users_id) {
-      console.log('⚠️ users_id missing for history load, attempting to fetch...');
-      try {
-        const userEmail = localStorage.getItem('userEmail');
-        const employeeToken = localStorage.getItem('employeeToken');
-        const employerToken = localStorage.getItem('employerToken');
-        const adminToken = localStorage.getItem('adminToken');
-        const agentToken = localStorage.getItem('agentToken');
-        const token = employeeToken || employerToken || adminToken || agentToken;
-        
-        if (userEmail && token) {
-          // Try API first
-          try {
-            const resId = await fetch(
-              `https://apis.kozi.rw/get_user_id_by_email/${encodeURIComponent(userEmail)}`,
-              {
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${token}`,
-                },
-              }
-            );
-            
-            if (resId.ok) {
-              const dataId = await resId.json();
-              if (dataId.users_id) {
-                currentUser.value.users_id = dataId.users_id;
-                console.log('✅ Fetched users_id for history:', currentUser.value.users_id);
-              }
-            } else {
-              // Try token payload
-              try {
-                const payload = JSON.parse(atob(token.split(".")[1]));
-                if (payload.userId || payload.user_id || payload.id || payload.users_id || payload.sub) {
-                  currentUser.value.users_id = payload.userId || payload.user_id || payload.id || payload.users_id || payload.sub;
-                  console.log('✅ Extracted users_id from token for history:', currentUser.value.users_id);
-                }
-              } catch (e) {
-                console.warn('⚠️ Could not extract userId from token for history:', e);
-              }
-            }
-          } catch (fetchError) {
-            console.warn('⚠️ Error fetching userId for history:', fetchError);
-          }
-        }
-      } catch (e) {
-        console.warn('⚠️ Failed to get users_id for history load:', e);
-      }
-    }
-    
-    if (!currentUser.value.users_id) {
-      console.warn('⚠️ Cannot load history: no user ID available after fetch attempt');
-      return;
-    }
-    
-    try {
-      console.log('📚 Loading chat history from backend for user:', currentUser.value.users_id)
-      const data = await getUserChatSessions(currentUser.value.users_id)
-      
-      console.log('📚 Backend returned data:', data)
-      
-      if (data?.sessions && Array.isArray(data.sessions)) {
-        console.log(`✅ Found ${data.sessions.length} chat sessions`)
-        const backendHistory = data.sessions.map(session => {
-          const lastMessage = session.messages && session.messages.length > 0 
-            ? session.messages[session.messages.length - 1]
-            : null
-          
-          let cleanLastMessage = ''
-          if (lastMessage) {
-            cleanLastMessage = lastMessage.type === 'user' 
-              ? lastMessage.content 
-              : stripHtmlAndFormat(lastMessage.content)
-          }
-          
-          const sessionTimestamp = session.timestamp || 
-                                  new Date(session.created_at).getTime() || 
-                                  new Date(session.createdAt).getTime() ||
-                                  Date.now()
-          
-          return {
-            sessionId: session.id,
-            title: session.title || 'New Chat',
-            date: new Date(sessionTimestamp).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            }),
-            timestamp: sessionTimestamp,
-            messageCount: session.messages ? session.messages.length : 0,
-            lastMessage: cleanLastMessage.substring(0, 100),
-            createdAt: new Date(sessionTimestamp)
-          }
-        })
-        
-        backendHistory.sort((a, b) => b.timestamp - a.timestamp)
-        
-        history.value = backendHistory
-        console.log('✅ Loaded backend chat history:', backendHistory.length, 'sessions')
-        console.log('📋 Sessions:', backendHistory.map(s => ({ id: s.sessionId, title: s.title })))
-        localStorage.setItem('kozi-chat-history', JSON.stringify(backendHistory))
-      } else {
-        console.warn('⚠️ No chat sessions found in backend response. Data structure:', data)
-        history.value = []
-      }
-    } catch (e) {
-      console.error('Failed to load chat history from backend:', e)
-    }
-  }
-
-  const deleteHistoryItem = async (sessionId) => {
-    if (!sessionId) return
-
-    try {
-      const url = `${API_BASE}${getApiPrefix()}/session/${sessionId}`
-      const res = await fetch(url, { method: "DELETE" })
-
-      if (!res.ok) {
-        const errorText = await res.text()
-        console.error("deleteChatSession error:", res.status, errorText)
-        throw new Error(`deleteChatSession failed: ${res.status}`)
-      }
-
-      const result = await res.json()
-      console.log("Deleted chat session:", result)
-
-      history.value = history.value.filter(
-        (item) => item.sessionId !== sessionId
-      )
-
-      if (currentSession.value === sessionId) {
-        currentSession.value = null
-        messages.value = []
-        currentChatTitle.value = "New Chat"
-        chatStarted.value = false
-        clearLastActiveSession()
-      }
-
-      return result
-    } catch (err) {
-      console.error("Failed to delete chat session:", err)
-      throw err
-    }
-  }
-
-  const clearAllHistory = async () => {
-    if (!currentUser.value || !currentUser.value.users_id) {
-      console.error("❌ Cannot clear history: User not logged in")
-      return
-    }
-
-    const users_id = currentUser.value.users_id
-
-    try {
-      history.value = []
-      localStorage.removeItem("kozi-chat-history")
-
-      const res = await fetch(`${API_BASE}${getApiPrefix()}/sessions/all`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ users_id }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json()
-        console.error("❌ Failed to clear server history:", data.error || data)
-        return
-      }
-
-      const data = await res.json()
-      console.log(`✅ Cleared ${data.deletedCount} sessions from server`)
-
-      currentSession.value = null
-      messages.value = []
-      currentChatTitle.value = "New Chat"
-      chatStarted.value = false
-      clearLastActiveSession()
-
-    } catch (err) {
-      console.error("❌ Error clearing history:", err)
-    }
-  }
 
   const toggleTheme = () => {
     document.body.classList.toggle('dark')
   }
 
-  const handleBeforeUnload = () => {
-    if (currentSession.value && messages.value.length > 0) {
-      saveCurrentChatToHistory()
-    }
-  }
 
-  const debugHistoryTimestamps = () => {
-    console.log('=== HISTORY TIMESTAMP DEBUG ===')
-    history.value.forEach((item, index) => {
-      console.log(`[${index}] ${item.title}:`, {
-        timestamp: item.timestamp,
-        date: item.date,
-        createdAt: item.createdAt,
-        sessionId: item.sessionId
-      })
-    })
-  }
-
-  onMounted(() => {
-    window.addEventListener('beforeunload', handleBeforeUnload)
-  })
-
-  onUnmounted(() => {
-    window.removeEventListener('beforeunload', handleBeforeUnload)
-    handleBeforeUnload()
-  })
 
   return {
     // State
     currentUser: computed(() => currentUser.value),
-    currentSession: computed(() => currentSession.value),
     messages: computed(() => messages.value),
-    history: computed(() => history.value),
     chatStarted: computed(() => chatStarted.value),
     loading: computed(() => loading.value),
     error: computed(() => error.value),
@@ -944,26 +539,11 @@ const initializeUser = async () => {
     startNewChat,
     sendMessage,
     sendSuggestion,
-    loadChatHistory,
-    deleteHistoryItem,
-    clearAllHistory,
     toggleTheme,
-    debugHistoryTimestamps,
   }
 }
 
 // Utility functions
-function stripHtmlAndFormat(text = '') {
-  if (!text) return ''
-  let cleaned = text.replace(/<[^>]*>/g, '')
-  cleaned = cleaned.replace(/\*\*(.+?)\*\*/g, '$1')
-  cleaned = cleaned.replace(/\*(.+?)\*/g, '$1')
-  cleaned = cleaned.replace(/#{1,6}\s*(.+)/g, '$1')
-  cleaned = cleaned.replace(/^\d+\.\s*/gm, '')
-  cleaned = cleaned.replace(/^[-•]\s*/gm, '')
-  cleaned = cleaned.replace(/\s+/g, ' ').trim()
-  return cleaned
-}
 
 function formatMessage(message = '') {
   if (!message) return ''
@@ -1231,6 +811,37 @@ async function getUserFromLocalStorage() {
       }
     }
     
+    // Step 3: If still no users_id, try backend endpoint (requires Authorization header)
+    if (!users_id && token) {
+      try {
+        console.log('🔍 Step 3: Attempting to fetch userId from backend endpoint...');
+        const resBackend = await fetchWithTimeout(
+          `${API_BASE}/user/id`,  // Use API_BASE which points to your backend
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`,  // CRITICAL: Backend needs this to extract user ID
+            },
+            timeout: 5000 // 5 second timeout
+          }
+        );
+        
+        if (resBackend.ok) {
+          const dataBackend = await resBackend.json();
+          console.log('📋 Backend User ID response:', dataBackend)
+          users_id = dataBackend.users_id;
+          if (users_id) {
+            console.log('✅ Fetched users_id from backend endpoint:', users_id);
+          }
+        } else {
+          const errorText = await resBackend.text();
+          console.warn('⚠️ Backend user ID fetch failed:', resBackend.status, errorText);
+        }
+      } catch (fetchError) {
+        console.warn('⚠️ Error fetching user ID from backend:', fetchError.message || fetchError);
+      }
+    }
+    
     // Build basic user object - allow null users_id for all roles
     // users_id can be fetched later when needed (in sendMessage)
     const user = {
@@ -1337,51 +948,37 @@ function getAuthHeaders() {
   return headers;
 }
 
-async function startSession(users_id, firstMessage, rolePrefix = '/chat') {
-  // Validate users_id before making the request
-  if (!users_id || isNaN(Number(users_id))) {
-    console.error('❌ startSession: Invalid users_id:', users_id)
-    throw new Error('Invalid user ID. Please refresh the page and try again.')
-  }
-  
-  const url = `${API_BASE}${rolePrefix}/new`
-  console.log('🚀 Starting chat session at:', url, 'with API_BASE:', API_BASE)
-  console.log('🚀 Request body:', { users_id: Number(users_id), firstMessage: firstMessage?.substring(0, 50) + '...' })
-  
-  try {
-  const res = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-      body: JSON.stringify({ users_id: Number(users_id), firstMessage }), 
-    timeout: 10000
-  })
-    
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '')
-      console.error('❌ startSession error:', res.status, errorText)
-      throw new Error(`Start session failed (${res.status}). ${errorText || 'Unknown error'}`)
-    }
-    
-    const data = await res.json()
-    console.log('✅ startSession success:', data)
-    return data
-  } catch (e) {
-    console.error('❌ startSession exception:', e)
-    throw e
-  }
-}
 
 // 🚀 Streaming message function
-async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk, onJobs, onCandidates, onTitle, rolePrefix = '/chat') {
+async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk, onJobs, onCandidates, onTitle, rolePrefix = '/chat', messagesArray = null) {
   const url = `${API_BASE}${rolePrefix}`
   console.log('🚀 AI Chat calling:', url, 'with API_BASE:', API_BASE)
+  
+  // Get chat history from messages (exclude the current message being sent)
+  // Format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+  const chatHistory = []
+  const messagesToUse = messagesArray || (window.messages && Array.isArray(window.messages) ? window.messages : [])
+  
+  if (messagesToUse && messagesToUse.length > 0) {
+    // Get all messages except the last one (which is the current message being sent)
+    const previousMessages = messagesToUse.slice(0, -1)
+    for (const msg of previousMessages) {
+      if (msg.sender === 'user' && msg.text) {
+        chatHistory.push({ role: 'user', content: msg.text })
+      } else if (msg.sender === 'assistant' && msg.text) {
+        chatHistory.push({ role: 'assistant', content: msg.text })
+      }
+    }
+  }
+  
+  console.log(`📚 Sending chat history with ${chatHistory.length} messages`)
+  
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({ 
-      sessionId, 
-      message, 
-      isFirstUserMessage
+      message,
+      chat_history: chatHistory.length > 0 ? chatHistory : undefined
     }),
     timeout: 60000
   })
@@ -1394,19 +991,80 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
 
   const contentType = res.headers.get('content-type') || ''
   if (contentType.includes('application/json')) {
-    const json = await res.json()
-    if (json?.data?.content) {
-      onChunk(json.data.content, null)
-    } else if (json?.content) {
-      onChunk(json.content, null)
-    } else if (json?.messages) {
-      const joined = (json.messages || [])
-        .map(m => (m.type === 'user' ? '' : m.content))
-        .filter(Boolean)
-        .join('\n')
-      if (joined) onChunk(joined, null)
+    try {
+      // Clone response to read it without consuming the stream
+      const responseText = await res.clone().text()
+      console.log('📦 Raw response text:', responseText.substring(0, 500))
+      
+      const json = await res.json()
+      console.log('📦 Parsed JSON response:', json)
+      
+      let contentFound = false
+      let extractedContent = null
+      
+      // Try all possible content locations in order of preference
+      if (json?.data?.content && typeof json.data.content === 'string') {
+        extractedContent = json.data.content
+        console.log('✅ Using json.data.content')
+        contentFound = true
+      } else if (json?.content && typeof json.content === 'string') {
+        extractedContent = json.content
+        console.log('✅ Using json.content')
+        contentFound = true
+      } else if (json?.response && typeof json.response === 'string') {
+        extractedContent = json.response
+        console.log('✅ Using json.response')
+        contentFound = true
+      } else if (json?.message && typeof json.message === 'string') {
+        extractedContent = json.message
+        console.log('✅ Using json.message')
+        contentFound = true
+      } else if (json?.messages && Array.isArray(json.messages)) {
+        const joined = (json.messages || [])
+          .map(m => (m.type === 'user' ? '' : (m.content || m.text || '')))
+          .filter(Boolean)
+          .join('\n')
+        if (joined && joined.trim()) {
+          extractedContent = joined
+          console.log('✅ Using json.messages')
+          contentFound = true
+        }
+      } else if (json?.text && typeof json.text === 'string') {
+        extractedContent = json.text
+        console.log('✅ Using json.text')
+        contentFound = true
+      }
+      
+      // CRITICAL: Always call onChunk if we found content
+      if (contentFound && extractedContent) {
+        onChunk(extractedContent, null)
+        return
+      }
+      
+      // If no content found, log detailed error and throw
+      console.error('❌ No valid content found in JSON response')
+      console.error('❌ Response structure:', JSON.stringify(json, null, 2))
+      console.error('❌ Available keys:', Object.keys(json || {}))
+      throw new Error('Response received but no valid content field found. Response structure: ' + JSON.stringify(Object.keys(json || {})))
+      
+    } catch (parseError) {
+      console.error('❌ Failed to parse JSON response:', parseError)
+      console.error('❌ Parse error details:', {
+        message: parseError.message,
+        stack: parseError.stack,
+        name: parseError.name
+      })
+      
+      // Try to get response text for debugging
+      try {
+        const errorText = await res.clone().text()
+        console.error('❌ Response text (first 500 chars):', errorText.substring(0, 500))
+      } catch (e) {
+        console.error('❌ Could not read response text:', e)
+      }
+      
+      throw new Error(`Failed to parse response: ${parseError.message}`)
     }
-    return
   }
 
   if (!res.body || !res.body.getReader) {
@@ -1414,10 +1072,32 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
     if (text) {
       try {
         const maybe = JSON.parse(text)
-        if (maybe?.content) onChunk(maybe.content, null)
-      } catch {
+        console.log('📦 Parsed non-streaming response:', maybe)
+        
+        // Try all possible content locations
+        if (maybe?.data?.content) {
+          onChunk(maybe.data.content, null)
+        } else if (maybe?.content) {
+          onChunk(maybe.content, null)
+        } else if (maybe?.response) {
+          onChunk(maybe.response, null)
+        } else if (maybe?.message) {
+          onChunk(maybe.message, null)
+        } else if (maybe?.text) {
+          onChunk(maybe.text, null)
+        } else {
+          // If JSON parsing succeeded but no content found, use the text
+          console.warn('⚠️ JSON parsed but no content field found, using raw text')
+          onChunk(text, null)
+        }
+      } catch (parseError) {
+        // If not JSON, use raw text
+        console.log('📝 Response is not JSON, using raw text')
         onChunk(text, null)
       }
+    } else {
+      console.warn('⚠️ Empty response body')
+      throw new Error('Empty response from server')
     }
     return
   }
@@ -1462,26 +1142,4 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
       }
     }
   }
-}
-
-async function getChatHistory(sessionId, rolePrefix = '/chat') {
-  const url = `${API_BASE}${rolePrefix}?action=loadPreviousSession`
-  console.log('Fetching chat history from:', url, 'with sessionId:', sessionId)
-  
-  const res = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ sessionId }),
-    timeout: 10000
-  })
-  
-  if (!res.ok) {
-    const errorText = await res.text()
-    console.error('getChatHistory error:', res.status, errorText)
-    throw new Error(`getChatHistory failed: ${res.status}`)
-  }
-  
-  const responseData = await res.json()
-  console.log('Raw response from getChatHistory:', JSON.stringify(responseData, null, 2))
-  return responseData
 }

@@ -66,7 +66,7 @@ async def init_db():
         
         # Test connection with a simple query (with timeout)
         await asyncio.wait_for(
-            client.chatsession.find_first(),
+            client.documents.find_first(),
             timeout=3.0
         )
         

@@ -10,6 +10,7 @@ from langchain_core.tools import tool
 from typing import Optional
 import sys
 from pathlib import Path
+import concurrent.futures
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -41,20 +42,38 @@ def retrieve_knowledge_base(query: str) -> str:
         >>> result = retrieve_knowledge_base("How do I search for jobs on Kozi?")
         >>> print(result)
     """
+    print(f"🔍 Knowledge base retrieval called with query: {query[:100]}...")
     try:
         if not QDRANT_ENABLED:
+            print(f"⚠️  Qdrant not enabled")
             return "Knowledge base is not configured. Please set QDRANT_URL and QDRANT_API_KEY environment variables."
         
         # Get the vector store
+        print(f"📚 Getting vector store...")
         vector_store = get_vector_store()
         
         if not vector_store:
+            print(f"⚠️  Vector store not available")
             return "Knowledge base is not available. Please check your Qdrant configuration."
         
-        # Search for similar documents (k=3 for top 3 results)
-        results = vector_store.similarity_search(query, k=3)
+        # Search for similar documents with timeout protection
+        # Use ThreadPoolExecutor to add timeout protection for synchronous call
+        print(f"🔎 Searching knowledge base with query: {query[:100]}...")
+        try:
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(vector_store.similarity_search, query, k=2)
+                results = future.result(timeout=8.0)  # 8 second timeout
+            print(f"✅ Knowledge base search completed, found {len(results) if results else 0} results")
+        except concurrent.futures.TimeoutError:
+            print("❌ Qdrant search timed out after 8 seconds")
+            return "Knowledge base search timed out. Please try again with a more specific question."
+        except Exception as search_error:
+            error_message = f"Error searching knowledge base: {str(search_error)}"
+            print(f"❌ {error_message}")
+            return f"Unable to search the knowledge base. Error: {error_message}"
         
         if not results:
+            print(f"⚠️  No results found in knowledge base")
             return "No relevant information found in the knowledge base."
         
         # Format the results for the AI agent

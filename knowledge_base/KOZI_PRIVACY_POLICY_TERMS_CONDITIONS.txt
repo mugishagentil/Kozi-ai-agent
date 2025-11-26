@@ -1,0 +1,590 @@
+﻿KOZI KB – PRIVACY POLICY
+KB-PP-1: Privacy Policy – Overview
+Kozi Rwanda respects user privacy and is committed to protecting personal data collected through:
+* Website
+
+* Mobile Application
+
+* WhatsApp Channel
+
+* Any official Kozi digital platforms
+
+The Privacy Policy explains:
+   * What data is collected
+
+   * Why data is collected
+
+   * How data is used
+
+   * How data is shared
+
+   * User rights and choices
+
+This applies to:
+      * Job Seekers (professional and support workers)
+
+      * Employers (homeowners, companies, institutions)
+
+      * Partners (NGOs, training centers, government bodies)
+
+By using the Kozi platform, users agree to this Privacy Policy.
+________________
+
+
+KB-PP-2: Information Collected – Personal Identification Data
+Data Collected
+         * Full Name
+
+         * Phone Number
+
+         * National ID or Passport
+
+         * Date of Birth
+
+         * Gender
+
+         * Address / Location
+
+Purpose of Collection
+            * Identity verification
+
+            * Fraud prevention
+
+            * Personalization of user experience
+
+            * Job-worker matching by skill and location
+
+________________
+
+
+KB-PP-3: Payment & Transaction Data
+Data Collected
+               * Mobile Money Number
+
+               * Bank Account (if applicable)
+
+               * Payment History on Kozi
+
+               * Invoices issued
+
+               * Transactional emails/messages
+
+Purpose
+                  * Worker salary processing
+
+                  * Employer invoicing
+
+                  * Payroll management
+
+                  * Financial transparency
+
+________________
+
+
+KB-PP-4: Device and Usage Data
+Data Collected
+                     * IP Address
+
+                     * Device Type (Android, iPhone, Desktop)
+
+                     * Browser Version
+
+                     * Pages visited
+
+                     * Buttons clicked
+
+                     * Time spent on platform
+
+Purpose
+                        * Platform performance improvements
+
+                        * Security monitoring
+
+                        * Fraud detection
+
+                        * User behavior analysis
+
+________________
+
+
+KB-PP-5: Uploaded Content & Communication
+Data Collected
+                           * Uploaded files (CVs, photos, contracts, references)
+
+                           * Messages sent via platform
+
+                           * Conversations with support or employers
+
+Purpose
+                              * Support job applications
+
+                              * Evidence in disputes
+
+                              * Accountability and professionalism
+
+________________
+
+
+KB-PP-6: How User Data Is Used
+Kozi uses data to:
+                                 * Match workers to employers
+
+                                 * Send job alerts
+
+                                 * Send interview invitations
+
+                                 * Send training updates
+
+                                 * Provide technical support
+
+                                 * Process payroll and invoices
+
+                                 * Follow up on worker performance
+
+                                 * Promote workers via premium visibility
+
+                                 * Comply with labor laws and legal requirements
+
+________________
+
+
+KB-PP-7: What Kozi Does NOT Do
+Kozi does NOT:
+                                    * Sell user data
+
+                                    * Share personal data without consent
+
+                                    * Allow employers to contact workers directly without user approval
+
+                                    * Allow off-platform communication without permission
+
+________________
+
+
+KB-PP-8: Data Sharing Rules
+Kozi may share:
+✅ Limited job profile data with verified employers
+✅ Job details with shortlisted workers
+✅ Data with trusted service providers (Mobile Money, cloud hosting)
+✅ Data with legal authorities if required by law
+Kozi will never sell data or share it with advertisers.
+________________
+
+
+KB-PP-9: Cookies and Tracking
+Kozi uses cookies to:
+                                       * Save user preferences
+
+                                       * Improve site performance
+
+                                       * Track job category interest
+
+                                       * Detect errors and misuse
+
+Users can disable cookies via browser settings.
+________________
+
+
+KB-PP-10: Profile Visibility
+Worker profiles may publicly display:
+                                          * Name
+
+                                          * Profile photo
+
+                                          * Job category
+
+                                          * General location (district level)
+
+Users can request:
+                                             * Visibility limitation
+
+                                             * Full deactivation
+
+Reduced visibility may reduce job match opportunities.
+________________
+
+
+KB-PP-11: Optional Features
+Optional services include:
+                                                * WhatsApp job alerts
+
+                                                * Email job alerts
+
+                                                * Skill badges
+
+                                                * Profile boosting
+
+                                                * Third-party login (Google/Facebook – future feature)
+
+Users can opt in/out any time.
+________________
+
+
+KB-PP-12: User Rights
+Users have rights to:
+                                                   * Access their data
+
+                                                   * Correct inaccurate data
+
+                                                   * Delete data
+
+                                                   * Request data copy
+
+                                                   * Restrict processing
+
+                                                   * Opt-out of marketing
+
+                                                   * File privacy complaints
+
+Contact DPO:
+📧 dpo@kozi.rw
+________________
+
+
+KOZI KB – TERMS & CONDITIONS
+KB-TC-1: Platform Definition
+Kozi Rwanda is a digital recruitment platform operated by Kozi E-Recruitment Ltd.
+It connects:
+                                                      * Job seekers
+
+                                                      * Employers
+
+                                                      * Partners
+
+________________
+
+
+KB-TC-2: User Categories
+Users include:
+                                                         * Job Seekers (domestic + professional)
+
+                                                         * Employers / Job Providers
+
+                                                         * Agents & Training Centers
+
+                                                         * NGOs and Institutions
+
+________________
+
+
+KB-TC-3: Definitions
+Key Definitions:
+                                                            * Platform = Kozi Rwanda system
+
+                                                            * User = any person/entity using Kozi
+
+                                                            * Job Seeker = person seeking work
+
+                                                            * Employer = person seeking workers
+
+                                                            * Partner = NGOs, training centers
+
+                                                            * Premium Features = paid visibility tools
+
+                                                            * Service Fee = payment for premium access
+
+                                                            * Ongoing Management = worker supervision service
+
+                                                            * Profile = user digital CV
+
+                                                            * Verification = identity and background checks
+
+                                                            * Inactive User = 150+ days inactivity
+
+                                                            * Account = digital access profile
+
+________________
+
+
+KB-TC-4: Job Seeker Responsibilities
+Job seekers must:
+                                                               * Submit truthful information
+
+                                                               * Pay only official number 067788 (SANSON GROUP)
+
+                                                               * Avoid fake agents
+
+                                                               * Not receive unauthorized cash
+
+                                                               * Be professional at work
+
+                                                               * Avoid theft or damage
+
+                                                               * Respect workplace rules
+
+Violations lead to account termination and legal action.
+________________
+
+
+KB-TC-5: Employer Responsibilities
+Employers must:
+                                                                  * Understand Kozi is facilitator, not employer
+
+                                                                  * Maintain their own security
+
+                                                                  * Allow Kozi management calls during supervision
+
+                                                                  * Pay worker final salaries if they breach agreement
+
+                                                                  * Pay penalty of 50,000 RWF if they violate contract
+
+________________
+
+
+KB-TC-6: Agent & Partner Responsibilities
+Agents must:
+                                                                     * Never collect money
+
+                                                                     * Use official Kozi channels
+
+                                                                     * Wear valid Kozi ID
+
+                                                                     * Be listed on www.kozi.rw/agents
+
+                                                                     * Not misuse databases
+
+                                                                     * Not register people without consent
+
+Violations result in termination and legal action.
+________________
+
+
+KOZI KB – FEES & PAYMENTS
+KB-FEE-1: Job Seeker Fees
+Free:
+                                                                        * Registration
+
+                                                                        * Job browsing
+
+                                                                        * Basic alerts
+
+Paid:
+                                                                           * Premium visibility: 2,000 RWF/month
+
+                                                                           * Payment only to: 067788 (SANSON GROUP)
+
+No refunds for wrong payments.
+________________
+
+
+KB-FEE-2: Employer Fees
+Free:
+                                                                              * Basic job posting
+
+                                                                              * Limited profile viewing
+
+Paid Options:
+                                                                                 * Featured job posts
+
+                                                                                 * Priority worker access
+
+                                                                                 * Recruitment service fee for professionals
+
+________________
+
+
+KB-FEE-3: Payment Rules
+✅ Official Mobile Money: 067788 (SANSON GROUP)
+ ❌ Never share PIN or passwords
+❌ No cash payments through agents
+Future payment options:
+                                                                                    * Cards
+
+                                                                                    * Bank transfers
+
+                                                                                    * IremboPay
+
+                                                                                    * PayPal
+
+________________
+
+
+KB-FEE-4: Refund Policy
+Job Seekers
+                                                                                       * No refund after premium activation
+
+Employers
+Refund allowed if:
+                                                                                          * No suitable candidate supplied
+
+                                                                                          * Replacement not provided
+
+Refund Requests:
+📧 support@kozi.rw
+⏱ Within 7 days
+ 💳 Refund within 14 business days
+________________
+
+
+KOZI KB – LIABILITY & DISCLAIMERS
+KB-LIAB-1: Kozi Role
+Kozi is NOT the legal employer.
+Kozi does NOT:
+                                                                                             * Control work
+
+                                                                                             * Supervise daily performance
+
+                                                                                             * Guarantee worker behavior
+
+________________
+
+
+KB-LIAB-2: Employer Liability
+Employers are fully responsible for:
+                                                                                                * Workplace security
+
+                                                                                                * Property safety
+
+                                                                                                * Risk management
+
+Kozi assists with:
+                                                                                                   * Legal documentation
+
+                                                                                                   * Dispute support
+
+________________
+
+
+KB-LIAB-3: Worker Misconduct
+Any fraud, theft, abuse =
+                                                                                                      * Immediate termination
+
+                                                                                                      * Legal reporting
+
+________________
+
+
+KB-LIAB-4: Third-Party Services
+Kozi is not responsible for:
+                                                                                                         * External platforms
+
+                                                                                                         * Payment gateway failures
+
+                                                                                                         * Training partners
+
+________________
+
+
+KB-LIAB-5: Platform Availability
+Kozi does not guarantee:
+                                                                                                            * 100% uptime
+
+                                                                                                            * Zero downtime
+
+                                                                                                            * No cyber risks
+
+________________
+
+
+KOZI KB – PLATFORM USAGE RULES
+KB-PU-1: User Conduct
+Users must:
+                                                                                                               * Be truthful
+
+                                                                                                               * Be professional
+
+                                                                                                               * Use platform for intended use
+
+                                                                                                               * Update profiles regularly
+
+________________
+
+
+KB-PU-2: Prohibited Actions
+Forbidden:
+                                                                                                                  * Fake accounts
+
+                                                                                                                  * Impersonation
+
+                                                                                                                  * Unauthorized payments
+
+                                                                                                                  * Data breaches
+
+                                                                                                                  * Illegal job posts
+
+________________
+
+
+KB-PU-3: Messaging Rules
+Messages must be:
+                                                                                                                     * Respectful
+
+                                                                                                                     * Professional
+
+                                                                                                                     * Non-abusive
+
+Kozi may monitor chats for fraud prevention.
+________________
+
+
+KB-PU-4: Account Suspension
+Accounts may be suspended for:
+                                                                                                                        * Rule violations
+
+                                                                                                                        * Fraud
+
+                                                                                                                        * Harassment
+
+Repeat offenders may be blacklisted.
+________________
+
+
+KOZI KB – DATA PROTECTION LAW
+KB-DP-1: Legal Compliance
+Kozi complies with:
+Rwanda Data Protection Law No 058/2021 of 13/10/2021
+________________
+
+
+KB-DP-2: User Data Rights
+Users have rights to:
+                                                                                                                           * Access
+
+                                                                                                                           * Correct
+
+                                                                                                                           * Delete
+
+                                                                                                                           * Object
+
+                                                                                                                           * Restrict processing
+
+                                                                                                                           * Data portability
+
+                                                                                                                           * Reject automated decision-making
+
+________________
+
+
+KB-DP-3: Kozi Rights
+Kozi can:
+                                                                                                                              * Display public worker profiles
+
+                                                                                                                              * Share data with insurance partners (e.g., Mituweli)
+
+                                                                                                                              * Retain data for legal periods
+
+                                                                                                                              * Deactivate abusive accounts
+
+________________
+
+
+KOZI KB – CONTACT INFORMATION
+KB-CON-1: Support Contacts
+📧 info@kozi.rw
+📧 support@kozi.rw
+📧 marketing-director@kozi.rw
+📧 dpo@kozi.rw
+📞 +250 788 719 678
+📞 +250 795 755 552
+________________
+
+
+KB-CON-2: Physical Address
+Kagarama, KK 437 St
+Kigali, Rwanda
+________________
+
+
+KB-CON-3: Working Hours
+🕐 Mon–Fri: 9:00 – 17:00
+🕐 Sat: 9:00 – 14:00

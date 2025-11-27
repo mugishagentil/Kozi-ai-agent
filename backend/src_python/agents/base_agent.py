@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain.agents import AgentExecutor
 from typing import List, Dict, Optional
 
@@ -32,7 +32,18 @@ from agents.retrieval_tool import retrieve_knowledge_base
 
 
 class BaseAgent:
-    """Base class for all Kozi AI agents with common functionality."""
+    """
+    Base class for all Kozi AI agents with common functionality.
+    
+    Architecture using LangChain Chains:
+    1. LLM (ChatOpenAI) - The AI brain/model
+    2. Tools - Python functions the AI can call
+    3. Agent Executor - Orchestrates the chain execution
+    4. Prompt Template - Defines the conversation structure with roles:
+       - System: AI instructions and behavior
+       - Human: User messages/input
+       - AI: Assistant responses and tool calls
+    """
     
     def __init__(
         self,
@@ -105,12 +116,29 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
         
         self.tools = tools
         
-        # Create prompt template
+        # Create prompt template using PromptTemplate.from_messages with explicit roles
+        # LangChain Chain Structure with three roles:
+        #
+        # ROLE 1: SYSTEM (SystemMessage)
+        #   - Defines AI behavior, instructions, personality, and tool usage guidelines
+        #   - Set once during initialization, guides all AI responses
+        #
+        # ROLE 2: HUMAN (HumanMessage) 
+        #   - User's messages and questions
+        #   - Stored in chat_history for context
+        #   - Current input: "{input}" placeholder
+        #
+        # ROLE 3: AI (AIMessage)
+        #   - Assistant's responses and tool call decisions
+        #   - Stored in chat_history for context
+        #   - Tool usage tracked in agent_scratchpad
+        #
+        # The chain flow: System → [History: Human/AI pairs] → Human (current) → AI (response + tools)
         self.prompt_template = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
+            ("system", self.system_prompt),  # System role: AI instructions and behavior
+            MessagesPlaceholder(variable_name="chat_history"),  # History: Human/AI message pairs
+            ("human", "{input}"),  # Human role: current user input
+            MessagesPlaceholder(variable_name="agent_scratchpad"),  # AI role: tool usage and reasoning
         ])
         
         # Create the agent
@@ -120,15 +148,15 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             prompt=self.prompt_template
         )
         
-        # Create agent executor (optimized for speed)
+        # Create agent executor with verbose mode to debug tool calls
         self.agent_executor = AgentExecutor(
             agent=self.agent,
             tools=self.tools,
-            verbose=False,  # Disabled for production (reduces overhead)
+            verbose=True,  # Enabled to debug tool calls - see what LLM decides
             handle_parsing_errors=True,
             max_iterations=5,  # Increased to 5 to allow tool calls (was 2 - too low, causing max iterations errors)
-            max_execution_time=15,  # Reduced from 30 to 15 seconds
-            return_intermediate_steps=False,  # Don't return intermediate steps (faster)
+            max_execution_time=30,  # Increased to 30 seconds to allow API calls
+            return_intermediate_steps=True,  # Return intermediate steps to see tool calls
         )
 
     def answer_question(self, question: str, context: Optional[Dict] = None) -> str:
@@ -142,14 +170,7 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
         Returns:
             Agent's response as a string
         """
-        print(f"📥 Base agent received question: {question[:100]}...")
         try:
-            # Set API token in thread-local storage so tools can access it
-            if context and 'api_token' in context:
-                from tools.mcp_tools import set_api_token_for_thread
-                set_api_token_for_thread(context['api_token'])
-                print(f"🔑 API token set in thread-local storage")
-            
             # Build input with context information
             agent_input = {
                 "input": question,
@@ -161,35 +182,38 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
                 if 'users_id' in context:
                     # Add users_id to input so agent can use it when calling get_user_profile
                     agent_input['input'] = f"[User ID: {context['users_id']}] {question}"
-                    print(f"👤 Added user ID {context['users_id']} to input")
-                    # Also store in context for tools
-                    agent_input['context'] = context
                 if 'api_token' in context:
-                    agent_input['api_token'] = context['api_token']
+                    # Store API token in environment so tools can access it
+                    import os
+                    os.environ['API_TOKEN'] = context['api_token']
+                    print(f"🔑 API token set in environment for tools")
             
-            print(f"🚀 Invoking agent executor with input: {agent_input['input'][:100]}...")
+            # Log what we're sending to the agent
+            print(f"📤 Sending to agent: {question[:100]}...")
+            print(f"🛠️  Available tools: {[tool.name for tool in self.tools]}")
+            
             result = self.agent_executor.invoke(agent_input)
-            print(f"✅ Agent executor completed")
+            
+            # Log intermediate steps to see if tools were called
+            if 'intermediate_steps' in result:
+                print(f"🔧 Intermediate steps: {len(result['intermediate_steps'])}")
+                for i, step in enumerate(result['intermediate_steps']):
+                    print(f"   Step {i+1}: {step}")
             
             # Check if agent stopped due to max iterations
             output = result.get("output", "")
             if "Agent stopped due to max iterations" in output or "max iterations" in output.lower():
-                print(f"⚠️  Agent hit max iterations, returning generic response")
-                # Return a generic helpful message (not job-specific)
-                return "I apologize, but I'm having trouble processing your request. Could you please rephrase your question or provide more details? I'm here to help with questions about Kozi, job searching, profile management, and more."
+                # Return a helpful message that encourages the user to provide more specific info
+                return "I want to help you find the perfect job! Could you provide a bit more detail? For example:\n- What type of job are you looking for? (e.g., marketing, IT, sales)\n- What's your preferred location? (e.g., Kigali, remote)\n\nOnce I have this information, I'll search for matching jobs right away!"
             
-            print(f"📤 Agent output: {output[:200] if output else 'Empty'}...")
             return output if output else "I apologize, but I couldn't generate a response."
         except Exception as error:
             error_str = str(error)
-            print(f"❌ Error processing question: {error}")
-            import traceback
-            print(f"📋 Traceback: {traceback.format_exc()}")
+            print(f"Error processing question: {error}")
             
             # Check for max iterations in exception message
             if "max iterations" in error_str.lower() or "max_iterations" in error_str.lower():
-                print(f"⚠️  Max iterations error detected, returning generic response")
-                return "I apologize, but I'm having trouble processing your request. Could you please rephrase your question or provide more details? I'm here to help with questions about Kozi, job searching, profile management, and more."
+                return "I want to help you find the perfect job! Could you provide a bit more detail? For example:\n- What type of job are you looking for? (e.g., marketing, IT, sales)\n- What's your preferred location? (e.g., Kigali, remote)\n\nOnce I have this information, I'll search for matching jobs right away!"
             
             # Check for specific OpenAI errors
             if "429" in error_str or "quota" in error_str.lower() or "insufficient_quota" in error_str.lower():
@@ -225,30 +249,25 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
         Returns:
             Agent's response as a string
         """
-        print(f"📥 Base agent answer_with_history - Question: {question[:100]}...")
-        print(f"📚 Chat history length: {len(chat_history) if chat_history else 0}")
         try:
-            # Set API token in thread-local storage so tools can access it
-            if context and 'api_token' in context:
-                from tools.mcp_tools import set_api_token_for_thread
-                set_api_token_for_thread(context['api_token'])
-                print(f"🔑 API token set in thread-local storage")
-            
             if chat_history is None:
                 chat_history = []
             
-            # Convert chat history to LangChain message format
+            # Convert chat history to LangChain message format with explicit roles
+            # System role: AI instructions (already in prompt template)
+            # Human role: user messages
+            # AI role: assistant responses
             messages = []
             for msg in chat_history:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
                 
                 if role == "user":
+                    # Human role: user's messages
                     messages.append(HumanMessage(content=content))
                 elif role == "assistant":
+                    # AI role: assistant's previous responses
                     messages.append(AIMessage(content=content))
-            
-            print(f"📝 Converted {len(messages)} messages from chat history")
             
             # Build input with context information
             agent_input = {
@@ -261,36 +280,40 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
                 if 'users_id' in context:
                     # Add users_id to input so agent can use it when calling get_user_profile
                     agent_input['input'] = f"[User ID: {context['users_id']}] {question}"
-                    print(f"👤 Added user ID {context['users_id']} to input")
-                    # Also store in context for tools
-                    agent_input['context'] = context
                 if 'api_token' in context:
-                    agent_input['api_token'] = context['api_token']
+                    # Store API token in environment so tools can access it
+                    import os
+                    os.environ['API_TOKEN'] = context['api_token']
+                    print(f"🔑 API token set in environment for tools")
             
-            print(f"🚀 Invoking agent executor with history...")
+            # Log what we're sending to the agent
+            print(f"📤 Sending to agent: {question[:100]}...")
+            print(f"📚 Chat history: {len(messages)} messages")
+            print(f"🛠️  Available tools: {[tool.name for tool in self.tools]}")
+            
             # Use agent executor with history
             result = self.agent_executor.invoke(agent_input)
-            print(f"✅ Agent executor completed")
+            
+            # Log intermediate steps to see if tools were called
+            if 'intermediate_steps' in result:
+                print(f"🔧 Intermediate steps: {len(result['intermediate_steps'])}")
+                for step in result['intermediate_steps']:
+                    print(f"   Step: {step}")
             
             # Check if agent stopped due to max iterations
             output = result.get("output", "")
             if "Agent stopped due to max iterations" in output or "max iterations" in output.lower():
-                print(f"⚠️  Agent hit max iterations, returning generic response")
-                # Return a generic helpful message (not job-specific)
-                return "I apologize, but I'm having trouble processing your request. Could you please rephrase your question or provide more details? I'm here to help with questions about Kozi, job searching, profile management, and more."
+                # Return a helpful message that encourages the user to provide more specific info
+                return "I want to help you find the perfect job! Could you provide a bit more detail? For example:\n- What type of job are you looking for? (e.g., marketing, IT, sales)\n- What's your preferred location? (e.g., Kigali, remote)\n\nOnce I have this information, I'll search for matching jobs right away!"
             
-            print(f"📤 Agent output: {output[:200] if output else 'Empty'}...")
             return output if output else "I apologize, but I couldn't generate a response."
         except Exception as error:
             error_str = str(error)
-            print(f"❌ Error processing question with history: {error}")
-            import traceback
-            print(f"📋 Traceback: {traceback.format_exc()}")
+            print(f"Error processing question with history: {error}")
             
             # Check for max iterations in exception message
             if "max iterations" in error_str.lower() or "max_iterations" in error_str.lower():
-                print(f"⚠️  Max iterations error detected, returning generic response")
-                return "I apologize, but I'm having trouble processing your request. Could you please rephrase your question or provide more details? I'm here to help with questions about Kozi, job searching, profile management, and more."
+                return "I want to help you find the perfect job! Could you provide a bit more detail? For example:\n- What type of job are you looking for? (e.g., marketing, IT, sales)\n- What's your preferred location? (e.g., Kigali, remote)\n\nOnce I have this information, I'll search for matching jobs right away!"
             
             # Check for specific OpenAI errors
             if "429" in error_str or "quota" in error_str.lower() or "insufficient_quota" in error_str.lower():

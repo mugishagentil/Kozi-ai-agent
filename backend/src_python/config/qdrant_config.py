@@ -39,26 +39,12 @@ def get_qdrant_client() -> Optional[QdrantClient]:
     if not QDRANT_URL or not QDRANT_API_KEY:
         return None
     
-    try:
-        client = QdrantClient(
-            url=QDRANT_URL,
-            api_key=QDRANT_API_KEY,
-            timeout=10.0,  # 10 second timeout for all operations
-        )
-        
-        # Test connection with a quick operation (non-blocking, just verify it works)
-        try:
-            client.get_collections()
-            print("✅ Qdrant client connected successfully")
-        except Exception as test_error:
-            print(f"⚠️  Qdrant connection test failed: {test_error}")
-            # Still return client - it might work for actual queries
-            # The timeout in retrieval_tool will catch if it doesn't work
-        
-        return client
-    except Exception as e:
-        print(f"⚠️  Error creating Qdrant client: {e}")
-        return None
+    client = QdrantClient(
+        url=QDRANT_URL,
+        api_key=QDRANT_API_KEY,
+    )
+    
+    return client
 
 
 def get_embeddings() -> OpenAIEmbeddings:

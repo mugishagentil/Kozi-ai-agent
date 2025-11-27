@@ -51,6 +51,36 @@
                   <span>New Chat</span>
                 </a>
               </li>
+              <!-- History Section -->
+              <li class="history-section">
+                <div class="history-header">
+                  <span>HISTORY</span>
+                </div>
+                <div v-if="loadingHistory" class="empty-history">
+                  <p>Loading chats...</p>
+                </div>
+                <div v-else-if="chatHistory.length > 0" class="chat-history-list">
+                  <div
+                    v-for="(chat, index) in chatHistory"
+                    :key="chat.sessionId || index"
+                    class="chat-history-item"
+                    :class="{ 'active': String(currentSessionId) === String(chat.sessionId) }"
+                    @click="loadChat(chat)"
+                  >
+                    <span class="chat-title">{{ chat.title || 'Untitled Chat' }}</span>
+                    <button 
+                      class="delete-chat-btn"
+                      @click.stop="deleteChat(chat)"
+                      title="Delete this chat"
+                    >
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+                <div v-else class="empty-history">
+                  <p>No chats yet</p>
+                </div>
+              </li>
             </ul>
           </template>
           <!-- Regular Menu Items -->
@@ -126,9 +156,18 @@
     </div>
   </aside>
   
+  <!-- Delete Chat Modal -->
+  <DeleteChatModal
+    :visible="showDeleteModal"
+    :chat-title="chatToDelete?.title || 'Untitled Chat'"
+    :deleting="deletingChat"
+    @confirm="confirmDelete"
+    @cancel="cancelDelete"
+  />
 </template>
 
 <script>
+import DeleteChatModal from '@/components/DeleteChatModal.vue';
 import { useRoute, useRouter } from 'vue-router';
 
 export default {
@@ -136,6 +175,9 @@ export default {
     visible: Boolean,
   },
   emits: ['close-sidebar'],
+  components: {
+    DeleteChatModal
+  },
   data() {
     return {
       userEmail: "",
@@ -143,6 +185,12 @@ export default {
       isProfileComplete: false,
       showModal: false,
       aiDropdownOpen: false,
+      chatHistory: [],
+      currentSessionId: null,
+      loadingHistory: false,
+      showDeleteModal: false,
+      chatToDelete: null,
+      deletingChat: false,
     };
   },
   computed: {
@@ -157,8 +205,41 @@ export default {
     }
   },
   async mounted() {
-    console.log('🟢 Job Seeker Sidebar mounted');
+    console.log('🟢 Job Seeker Sidebar mounted, initializing...');
+    
+    // Initialize user ID and profile check first
     await this.getUserIdAndCheckProfile();
+    
+    // Set currentSessionId from route query
+    if (this.$route.query.sessionId) {
+      this.currentSessionId = String(this.$route.query.sessionId);
+    }
+    
+    // Watch route to update currentSessionId
+    this.$watch(
+      () => this.$route.query.sessionId,
+      (sessionId) => {
+        this.currentSessionId = sessionId ? String(sessionId) : null;
+        // Reload history when a session is loaded via URL
+        if (sessionId && this.userId) {
+          console.log('🔄 Job Seeker Sidebar: Session ID changed in URL, reloading history...');
+          this.loadChatHistory();
+        }
+      },
+      { immediate: false }
+    );
+    
+    // Listen for chat history updates
+    window.addEventListener('chatHistoryUpdated', this.handleChatHistoryUpdate);
+    
+    // Load initial chat history
+    if (this.userId && this.isProfileComplete) {
+      console.log('📋 Job Seeker Sidebar: Loading initial chat history on mount');
+      await this.loadChatHistory();
+    }
+  },
+  beforeUnmount() {
+    window.removeEventListener('chatHistoryUpdated', this.handleChatHistoryUpdate);
   },
   setup() {
     const route = useRoute();
@@ -306,8 +387,19 @@ export default {
         console.error("❌ Job Seeker Sidebar: Error retrieving user info or checking profile:", err);
       }
     },
-    toggleAIDropdown() {
+    async toggleAIDropdown() {
       this.aiDropdownOpen = !this.aiDropdownOpen;
+      console.log('🔄 Job Seeker Sidebar: AI dropdown toggled, open:', this.aiDropdownOpen);
+      // Always reload history when opening dropdown to ensure it's up to date
+      if (this.aiDropdownOpen) {
+        if (this.userId) {
+          console.log('📋 Job Seeker Sidebar: Reloading history on dropdown open');
+          await this.loadChatHistory();
+        } else {
+          console.log('⚠️ Job Seeker Sidebar: No user ID, getting it first...');
+          await this.getUserIdAndCheckProfile();
+        }
+      }
     },
     handleAIClick(item) {
       // Navigate to AI page if not already there
@@ -318,14 +410,148 @@ export default {
       // Toggle dropdown
       this.toggleAIDropdown();
     },
+    async loadChatHistory() {
+      if (!this.userId) {
+        console.warn('⚠️ Job Seeker Sidebar: Cannot load history - no user ID');
+        return;
+      }
+      
+      // Prevent concurrent requests but allow queued requests
+      if (this.loadingHistory) {
+        console.log('📋 Job Seeker Sidebar: Already loading, skipping duplicate request');
+        return;
+      }
+      
+      this.loadingHistory = true;
+      try {
+        const token = localStorage.getItem("employeeToken");
+        if (!token) {
+          console.warn('⚠️ Job Seeker Sidebar: No token available');
+          this.loadingHistory = false;
+          return;
+        }
+        
+        const url = `${this.apiBase}/chat/sessions?users_id=${this.userId}`;
+        console.log('📋 Job Seeker Sidebar: Loading chat history from:', url);
+        
+        const res = await fetch(url, {
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        console.log('📋 Job Seeker Sidebar: Response status:', res.status);
+        
+        if (res.ok) {
+          const data = await res.json();
+          console.log('📋 Job Seeker Sidebar: Response data:', data);
+          
+          if (data.sessions && Array.isArray(data.sessions)) {
+            console.log(`✅ Job Seeker Sidebar: Found ${data.sessions.length} chat sessions`);
+            const mappedSessions = data.sessions.map(session => ({
+              sessionId: String(session.id),
+              title: session.title || 'New Chat',
+              createdAt: session.created_at || session.createdAt,
+              lastMessage: session.last_message || ''
+            })).sort((a, b) => {
+              const dateA = new Date(a.createdAt || 0);
+              const dateB = new Date(b.createdAt || 0);
+              return dateB - dateA;
+            });
+            
+            // Force reactivity by creating new array reference
+            this.chatHistory = [...mappedSessions];
+            console.log('✅ Job Seeker Sidebar: Loaded chat history:', this.chatHistory.length, 'sessions');
+          } else {
+            console.warn('⚠️ Job Seeker Sidebar: No sessions array in response:', data);
+            this.chatHistory = [];
+          }
+        } else {
+          const errorText = await res.text();
+          console.error('❌ Job Seeker Sidebar: Error loading chat history:', res.status, errorText);
+          this.chatHistory = [];
+        }
+      } catch (err) {
+        console.error("Error loading chat history:", err);
+        this.chatHistory = [];
+      } finally {
+        this.loadingHistory = false;
+      }
+    },
     handleNewChat() {
       this.$emit('close-sidebar');
-      this.$router.push({ 
-        path: '/dashboard/ai-agent', 
-        query: {} 
-      }).then(() => {
-        window.dispatchEvent(new CustomEvent('newChatRequested'));
+      console.log('🆕 Job Seeker: New Chat clicked, navigating to welcome page...');
+      
+      // Check if we're already on the AI page
+      if (this.$route.path === '/dashboard/ai-agent' && this.$route.query.sessionId) {
+        // If we're already on the AI page with a sessionId, replace to clear it
+        console.log('🔄 Already on AI page, replacing route to clear sessionId');
+        this.$router.replace({ 
+          path: '/dashboard/ai-agent', 
+          query: {} 
+        }).then(() => {
+          // Dispatch event to trigger new chat
+          window.dispatchEvent(new CustomEvent('newChatRequested'));
+        });
+      } else {
+        // Navigate to AI page without sessionId
+        console.log('🔄 Navigating to AI page for new chat');
+        this.$router.push({ 
+          path: '/dashboard/ai-agent', 
+          query: {} 
+        }).then(() => {
+          // Dispatch event to trigger new chat
+          window.dispatchEvent(new CustomEvent('newChatRequested'));
+        });
+      }
+    },
+    loadChat(chat) {
+      this.$emit('close-sidebar');
+      this.$router.push({
+        path: '/dashboard/ai-agent',
+        query: { sessionId: chat.sessionId }
       });
+    },
+    deleteChat(chat) {
+      // Show the modal instead of browser confirm
+      this.chatToDelete = chat;
+      this.showDeleteModal = true;
+    },
+    async confirmDelete() {
+      if (!this.chatToDelete) return;
+      
+      this.deletingChat = true;
+      try {
+        const token = localStorage.getItem("employeeToken");
+        const res = await fetch(`${this.apiBase}/chat/session/${this.chatToDelete.sessionId}`, {
+          method: 'DELETE',
+          headers: { 
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (res.ok) {
+          this.chatHistory = this.chatHistory.filter(c => c.sessionId !== this.chatToDelete.sessionId);
+          console.log('✅ Chat deleted successfully');
+        } else {
+          const errorText = await res.text();
+          console.error('❌ Failed to delete chat:', res.status, errorText);
+          alert("Failed to delete chat. Please try again.");
+        }
+      } catch (err) {
+        console.error("❌ Error deleting chat:", err);
+        alert("Failed to delete chat. Please try again.");
+      } finally {
+        this.deletingChat = false;
+        this.showDeleteModal = false;
+        this.chatToDelete = null;
+      }
+    },
+    cancelDelete() {
+      this.showDeleteModal = false;
+      this.chatToDelete = null;
+      this.deletingChat = false;
     },
     showAccessModal() {
       this.showModal = true;
@@ -337,6 +563,30 @@ export default {
       this.showModal = false;
       this.$emit('close-sidebar');
     },
+    async handleChatHistoryUpdate() {
+      // Reload chat history when a new message is sent (even if dropdown is closed)
+      console.log('📢 Job Seeker Sidebar: Chat history updated event received');
+      console.log('📢 Job Seeker Sidebar: Current userId:', this.userId);
+      console.log('📢 Job Seeker Sidebar: Current loadingHistory:', this.loadingHistory);
+      
+      if (this.userId) {
+        console.log('📢 Job Seeker Sidebar: Reloading history due to update event');
+        // Add a small delay to ensure backend has processed the new session
+        setTimeout(async () => {
+          await this.loadChatHistory();
+          console.log('✅ Job Seeker Sidebar: History reload completed. Sessions:', this.chatHistory.length);
+        }, 300);
+      } else {
+        console.warn('⚠️ Job Seeker Sidebar: Cannot reload history - no user ID');
+        await this.getUserIdAndCheckProfile();
+        if (this.userId) {
+          setTimeout(async () => {
+            await this.loadChatHistory();
+            console.log('✅ Job Seeker Sidebar: History reload completed after getting userId. Sessions:', this.chatHistory.length);
+          }, 300);
+        }
+      }
+    }
   }
 };
 </script>
@@ -743,4 +993,102 @@ export default {
   padding-left: 2rem;
 }
 
+/* History Section */
+.history-section {
+  padding: 0.5rem;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.history-header span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Chat History List */
+.chat-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.chat-history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  margin: 0 0.25rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  background: white;
+  border: 1px solid #e9ecef;
+}
+
+.chat-history-item:hover {
+  background: #f8f9fa;
+}
+
+.chat-history-item.active {
+  background: #E960A6;
+  color: white;
+  border-color: #E960A6;
+}
+
+.chat-title {
+  flex: 1;
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 0.5rem;
+}
+
+.delete-chat-btn {
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  padding: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.chat-history-item:hover .delete-chat-btn {
+  opacity: 1;
+}
+
+.chat-history-item.active .delete-chat-btn {
+  color: white;
+  opacity: 1;
+}
+
+.delete-chat-btn:hover {
+  color: #E960A6;
+}
+
+.chat-history-item.active .delete-chat-btn:hover {
+  color: #ffb3d9;
+}
+
+/* Empty History */
+.empty-history {
+  padding: 1rem;
+  text-align: center;
+  color: #999;
+  font-size: 0.875rem;
+}
+
+.empty-history p {
+  margin: 0;
+}
 </style>

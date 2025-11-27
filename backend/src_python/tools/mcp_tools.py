@@ -18,32 +18,13 @@ load_dotenv()
 JOBS_API_URL = os.getenv("JOBS_API_URL")
 JOB_CATEGORIES_API = os.getenv("JOB_CATEGORIES_API")
 JOB_SEEKERS_BY_CATEGORY_API = os.getenv("JOB_SEEKERS_BY_CATEGORY_API")
-
-# Extract base URL from JOBS_API_URL if available, otherwise use API_BASE_URL env var or default
-if JOBS_API_URL:
-    # Extract base URL from JOBS_API_URL (e.g., "https://apis.kozi.rw/admin/select_jobss" -> "https://apis.kozi.rw")
-    from urllib.parse import urlparse
-    parsed = urlparse(JOBS_API_URL)
-    API_BASE_URL = f"{parsed.scheme}://{parsed.netloc}"
-    print(f"🔗 Using API_BASE_URL extracted from JOBS_API_URL: {API_BASE_URL}")
-else:
-    API_BASE_URL = os.getenv("API_BASE_URL", "https://apis.kozi.rw")
-    print(f"🔗 Using API_BASE_URL from env/default: {API_BASE_URL}")
-
+API_BASE_URL = os.getenv("API_BASE_URL", "https://apis.kozi.rw")
 USER_PROFILE_API = os.getenv("USER_PROFILE_API", f"{API_BASE_URL}/seeker/view_profile")
 
 
-# Thread-local storage for API token (allows tools to access token from agent context)
-import threading
-_thread_local = threading.local()
-
-def set_api_token_for_thread(token: str):
-    """Set API token for current thread (used by agents to pass token to tools)"""
-    _thread_local.api_token = token
-
 def get_api_token(context: Optional[Dict] = None) -> Optional[str]:
     """
-    Get API token from context, thread-local storage, or environment.
+    Get API token from context or environment.
     
     Args:
         context: Optional context dictionary containing API token
@@ -51,12 +32,28 @@ def get_api_token(context: Optional[Dict] = None) -> Optional[str]:
     Returns:
         API token string or None
     """
-    # Priority: context > thread-local > environment
+    # Try multiple sources for API token
+    token = None
+    
+    # 1. Try context dict first
     if context and "api_token" in context:
-        return context["api_token"]
-    if hasattr(_thread_local, 'api_token'):
-        return _thread_local.api_token
-    return os.getenv("API_TOKEN")
+        token = context["api_token"]
+    
+    # 2. Try environment variable
+    if not token:
+        token = os.getenv("API_TOKEN")
+    
+    # 3. Try from request context if available (for tools called by agent)
+    if not token:
+        # Check if there's a global context (set by agent)
+        token = os.getenv("API_TOKEN")
+    
+    if token:
+        print(f"🔑 API token found: {token[:20]}...")
+    else:
+        print(f"⚠️  No API token found in context or environment")
+    
+    return token
 
 
 def extract_user_id_from_input(input_text: str) -> Optional[int]:
@@ -91,35 +88,52 @@ def search_jobs(
     api_token: Optional[str] = None
 ) -> str:
     """
+    **MANDATORY TOOL FOR JOB SEARCHES** - Use this tool whenever a user asks for jobs, mentions a job type, or wants to find employment.
+    
     Search for jobs on the Kozi platform with pagination support.
     
-    This tool can fetch jobs from all pages to find the best matches for the user.
-    Use fetch_all=True to get all available jobs across all pages.
+    **WHEN TO USE THIS TOOL:**
+    - User says "I need a job" or "find me a job" → Use this tool
+    - User mentions a job type (sales, marketing, IT, etc.) → Use this tool with category parameter
+    - User mentions a location → Use this tool with location parameter
+    - User asks "show me available jobs" → Use this tool
+    - ANY job-related request → Use this tool
+    
+    **IMPORTANT:**
+    - Always set fetch_all=True to get all available jobs
+    - If user says "any location", set location=None or omit it
+    - If user mentions a category (sales, marketing, IT, etc.), set category parameter
+    - This tool returns formatted job listings with titles, companies, locations
     
     Args:
-        query: Search query/keywords
-        category: Job category filter (optional)
-        location: Location filter (optional)
+        query: Search query/keywords (e.g., "marketing specialist")
+        category: Job category filter - REQUIRED if user mentions job type (e.g., "sales", "marketing", "IT")
+        location: Location filter (e.g., "Kigali") - set to None if user says "any location"
         page: Page number to fetch (default: 1)
         per_page: Number of jobs per page (default: 50, max: 100)
-        fetch_all: If True, fetches all pages of results (default: False)
-        api_token: API authentication token (optional, can be passed via context)
+        fetch_all: ALWAYS set to True to get all available jobs
+        api_token: API authentication token (optional, will use environment variable if not provided)
         
     Returns:
-        Formatted string with job search results including pagination info
+        Formatted string with job search results including job titles, companies, locations, and descriptions
     """
     try:
-        if not JOBS_API_URL:
-            print("❌ JOBS_API_URL is not configured")
-            return "Jobs API is not configured. Please set JOBS_API_URL environment variable."
+        print(f"🔍 search_jobs called with: category={category}, location={location}, fetch_all={fetch_all}")
+        print(f"🌐 Using JOBS_API_URL: {JOBS_API_URL}")
         
-        print(f"🔍 Calling JOBS_API_URL: {JOBS_API_URL}")
-        print(f"   Parameters: query={query}, category={category}, location={location}, page={page}, fetch_all={fetch_all}")
+        if not JOBS_API_URL:
+            error_msg = "Jobs API is not configured. Please set JOBS_API_URL environment variable."
+            print(f"❌ {error_msg}")
+            return error_msg
         
         token = api_token or get_api_token()
         if not token:
-            print("❌ API token is required for job search")
-            return "API token is required. Please authenticate first."
+            error_msg = "API token is required. Please authenticate first. The API token should be available in the environment."
+            print(f"❌ {error_msg}")
+            print(f"🔍 Checking environment: API_TOKEN={'SET' if os.getenv('API_TOKEN') else 'NOT SET'}")
+            return error_msg
+        
+        print(f"✅ API token found, proceeding with job search...")
         
         headers = {
             "Authorization": f"Bearer {token}",
@@ -147,13 +161,24 @@ def search_jobs(
             params["per_page"] = min(per_page, 100)  # Cap at 100 per page
             
             try:
-                print(f"📡 Fetching page {current_page} from JOBS_API_URL...")
+                print(f"📡 Making API request to: {JOBS_API_URL} with params: {params}")
                 response = requests.get(
                     JOBS_API_URL,
                     params=params,
                     headers=headers,
                     timeout=30.0
                 )
+                print(f"📥 API response status: {response.status_code}")
+                
+                # Handle 403 Forbidden specifically
+                if response.status_code == 403:
+                    error_msg = f"403 Forbidden: The API token does not have permission to access this endpoint. "
+                    error_msg += f"URL: {response.url}. "
+                    error_msg += f"Please check: 1) API token permissions, 2) JOBS_API_URL configuration (currently: {JOBS_API_URL}), "
+                    error_msg += f"3) Ensure the endpoint is correct (should be a public jobs endpoint, not /admin/)."
+                    print(f"❌ {error_msg}")
+                    return error_msg
+                
                 response.raise_for_status()
                 data = response.json()
                 
@@ -178,7 +203,7 @@ def search_jobs(
                 
                 if jobs and len(jobs) > 0:
                     all_jobs.extend(jobs)
-                    print(f"✅ Fetched page {current_page} from JOBS_API_URL: {len(jobs)} jobs (Total so far: {len(all_jobs)})")
+                    print(f"📄 Fetched page {current_page}: {len(jobs)} jobs (Total so far: {len(all_jobs)})")
                     
                     # Check if there are more pages
                     if fetch_all:
@@ -208,45 +233,24 @@ def search_jobs(
                 has_more = False
         
         if not all_jobs or len(all_jobs) == 0:
-            print(f"⚠️  No jobs found from JOBS_API_URL with criteria: query={query}, category={category}, location={location}")
-            return f"No jobs found matching your criteria: {query or 'all jobs'}"
-        
-        # CLIENT-SIDE FILTERING: If category was specified, filter jobs by category name or title
-        filtered_jobs = all_jobs
-        if category:
-            category_lower = category.lower()
-            print(f"🔍 Filtering jobs by category: {category}")
-            filtered_jobs = []
-            for job in all_jobs:
-                job_title = (job.get('title', '') or job.get('job_title', '') or '').lower()
-                job_category = (job.get('category', '') or job.get('category_name', '') or '').lower()
-                job_description = (job.get('description', '') or '').lower()
-                
-                # Check if category matches in title, category field, or description
-                if (category_lower in job_title or 
-                    category_lower in job_category or 
-                    category_lower in job_description):
-                    filtered_jobs.append(job)
-            
-            print(f"📊 Filtered from {len(all_jobs)} to {len(filtered_jobs)} jobs matching category '{category}'")
-            
-            if len(filtered_jobs) == 0:
-                return f"No jobs found matching the category '{category}'. Try searching for a different category or broaden your search."
-        
-        print(f"✅ Successfully retrieved {len(filtered_jobs)} job(s) from JOBS_API_URL")
+            no_jobs_msg = f"No jobs found matching your criteria: {query or 'all jobs'}"
+            if category:
+                no_jobs_msg += f" in category '{category}'"
+            if location:
+                no_jobs_msg += f" in location '{location}'"
+            print(f"ℹ️  {no_jobs_msg}")
+            return no_jobs_msg
         
         # Format results
-        formatted = [f"Found {len(filtered_jobs)} job(s)"]
-        if category:
-            formatted[0] += f" in {category}"
+        formatted = [f"Found {len(all_jobs)} job(s)"]
         if fetch_all and current_page > 1:
             formatted[0] += f" across {current_page} page(s)"
         formatted[0] += ":\n\n"
         
         # Show all jobs (or top 50 if too many)
-        display_limit = min(len(filtered_jobs), 50) if len(filtered_jobs) > 50 else len(filtered_jobs)
+        display_limit = min(len(all_jobs), 50) if len(all_jobs) > 50 else len(all_jobs)
         
-        for i, job in enumerate(filtered_jobs[:display_limit], 1):
+        for i, job in enumerate(all_jobs[:display_limit], 1):
             formatted.append(f"{i}. **{job.get('title', job.get('job_title', 'Untitled'))}**")
             
             if job.get('company') or job.get('company_name'):
@@ -264,101 +268,23 @@ def search_jobs(
                 formatted.append(f"   ID: {job.get('id') or job.get('job_id')}")
             formatted.append("")
         
-        if len(filtered_jobs) > display_limit:
-            formatted.append(f"\n... and {len(filtered_jobs) - display_limit} more job(s). Use more specific filters to narrow results.")
+        if len(all_jobs) > display_limit:
+            formatted.append(f"\n... and {len(all_jobs) - display_limit} more job(s). Use more specific filters to narrow results.")
         
-        return "\n".join(formatted)
+        result_text = "\n".join(formatted)
+        print(f"✅ search_jobs completed successfully, found {len(all_jobs)} jobs")
+        return result_text
         
+    except requests.exceptions.RequestException as e:
+        error_msg = f"API request failed: {str(e)}. Please check your internet connection and API configuration."
+        print(f"❌ search_jobs API error: {error_msg}")
+        return error_msg
     except Exception as e:
-        return f"Error searching jobs: {str(e)}"
-
-
-@tool
-def get_job_details(job_id: int, api_token: Optional[str] = None) -> str:
-    """
-    Get detailed information about a specific job by its ID.
-    
-    This tool fetches complete job details including description, requirements,
-    responsibilities, salary, company information, and more.
-    
-    Args:
-        job_id: The ID of the job to get details for
-        api_token: API authentication token (optional, can be passed via context)
-        
-    Returns:
-        Formatted string with complete job details
-    """
-    try:
-        if not API_BASE_URL:
-            return "API base URL is not configured."
-        
-        token = api_token or get_api_token()
-        if not token:
-            return "API token is required."
-        
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
-        
-        # Use the job details endpoint
-        job_details_url = f"{API_BASE_URL}/admin/select_job/{job_id}"
-        
-        print(f"📡 Fetching job details from: {job_details_url} for job ID: {job_id}")
-        response = requests.get(
-            job_details_url,
-            headers=headers,
-            timeout=30.0
-        )
-        response.raise_for_status()
-        job = response.json()
-        
-        if not job:
-            return f"Job with ID {job_id} not found."
-        
-        print(f"✅ Successfully fetched job details for ID {job_id}")
-        
-        # Format job details
-        formatted = [f"**{job.get('job_title', job.get('title', 'Untitled'))}**\n"]
-        
-        if job.get('company'):
-            formatted.append(f"**Company:** {job.get('company')}")
-        if job.get('location'):
-            formatted.append(f"**Location:** {job.get('location')}")
-        if job.get('category') or job.get('category_name'):
-            formatted.append(f"**Category:** {job.get('category') or job.get('category_name')}")
-        if job.get('salary_min') or job.get('salary_max'):
-            salary_min = job.get('salary_min', 'N/A')
-            salary_max = job.get('salary_max', 'N/A')
-            formatted.append(f"**Salary:** {salary_min} - {salary_max} RWF per month")
-        
-        formatted.append("")
-        
-        if job.get('job_description'):
-            formatted.append(f"**Job Description:**\n{job.get('job_description')}")
-            formatted.append("")
-        
-        if job.get('requirements'):
-            formatted.append(f"**Requirements:**\n{job.get('requirements')}")
-            formatted.append("")
-        
-        if job.get('responsability') or job.get('responsibilities'):
-            formatted.append(f"**Responsibilities:**\n{job.get('responsability') or job.get('responsibilities')}")
-            formatted.append("")
-        
-        if job.get('conclusion'):
-            formatted.append(f"**Conclusion:**\n{job.get('conclusion')}")
-        
-        return "\n".join(formatted)
-        
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            return f"Job with ID {job_id} not found."
-        print(f"❌ HTTP Error fetching job details: {e}")
-        return f"Error fetching job details: {str(e)}"
-    except Exception as e:
-        print(f"❌ Error fetching job details: {str(e)}")
-        return f"Error fetching job details: {str(e)}"
+        error_msg = f"Error searching jobs: {str(e)}"
+        print(f"❌ search_jobs error: {error_msg}")
+        import traceback
+        print(f"📋 Full traceback: {traceback.format_exc()}")
+        return error_msg
 
 
 @tool
@@ -374,14 +300,10 @@ def get_job_categories(api_token: Optional[str] = None) -> str:
     """
     try:
         if not JOB_CATEGORIES_API:
-            print("❌ JOB_CATEGORIES_API is not configured")
             return "Job categories API is not configured."
-        
-        print(f"🔍 Calling JOB_CATEGORIES_API: {JOB_CATEGORIES_API}")
         
         token = api_token or get_api_token()
         if not token:
-            print("❌ API token is required for job categories")
             return "API token is required."
         
         headers = {
@@ -390,7 +312,6 @@ def get_job_categories(api_token: Optional[str] = None) -> str:
         }
         
         # Use synchronous requests
-        print(f"📡 Fetching job categories from JOB_CATEGORIES_API...")
         response = requests.get(
             JOB_CATEGORIES_API,
             headers=headers,
@@ -398,8 +319,6 @@ def get_job_categories(api_token: Optional[str] = None) -> str:
         )
         response.raise_for_status()
         categories = response.json()
-        
-        print(f"✅ Successfully fetched {len(categories) if isinstance(categories, list) else 'categories'} from JOB_CATEGORIES_API")
         
         if not categories:
             return "No job categories available."

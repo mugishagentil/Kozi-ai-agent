@@ -11,7 +11,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain.agents import AgentExecutor
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
+from openai import OpenAI
 
 # Try to import create_openai_tools_agent - handle version differences
 try:
@@ -29,6 +30,7 @@ except ImportError:
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from agents.retrieval_tool import retrieve_knowledge_base
+from thread_manager import ThreadManager
 
 
 class BaseAgent:
@@ -71,6 +73,10 @@ class BaseAgent:
             timeout=15.0,  # Reduced from 30.0 - 15 seconds is enough
             max_retries=1,  # Reduced from 2 to fail faster
         )
+        
+        # Initialize OpenAI client and thread manager
+        self.openai_client = OpenAI(api_key=api_key)
+        self.thread_manager = ThreadManager(api_key)
         
         # Default system prompt if not provided
         if not system_prompt:
@@ -117,23 +123,6 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
         self.tools = tools
         
         # Create prompt template using PromptTemplate.from_messages with explicit roles
-        # LangChain Chain Structure with three roles:
-        #
-        # ROLE 1: SYSTEM (SystemMessage)
-        #   - Defines AI behavior, instructions, personality, and tool usage guidelines
-        #   - Set once during initialization, guides all AI responses
-        #
-        # ROLE 2: HUMAN (HumanMessage) 
-        #   - User's messages and questions
-        #   - Stored in chat_history for context
-        #   - Current input: "{input}" placeholder
-        #
-        # ROLE 3: AI (AIMessage)
-        #   - Assistant's responses and tool call decisions
-        #   - Stored in chat_history for context
-        #   - Tool usage tracked in agent_scratchpad
-        #
-        # The chain flow: System → [History: Human/AI pairs] → Human (current) → AI (response + tools)
         self.prompt_template = ChatPromptTemplate.from_messages([
             ("system", self.system_prompt),  # System role: AI instructions and behavior
             MessagesPlaceholder(variable_name="chat_history"),  # History: Human/AI message pairs
@@ -159,22 +148,37 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             return_intermediate_steps=True,  # Return intermediate steps to see tool calls
         )
 
-    def answer_question(self, question: str, context: Optional[Dict] = None) -> str:
+    def answer_question(self, question: str, context: Optional[Dict] = None, thread_id: Optional[str] = None) -> str:
         """
         Answer a single question.
         
         Args:
             question: User's question
             context: Optional context dict with users_id, api_token, etc. for tools to use
+            thread_id: Optional OpenAI thread ID for persistent history
             
         Returns:
             Agent's response as a string
         """
         try:
+            # If thread_id provided, get history from OpenAI thread
+            messages = []
+            if thread_id:
+                try:
+                    thread_messages = self.thread_manager.get_messages(thread_id)
+                    for msg in thread_messages:
+                        if msg["role"] == "user":
+                            messages.append(HumanMessage(content=msg["content"]))
+                        elif msg["role"] == "assistant":
+                            messages.append(AIMessage(content=msg["content"]))
+                except Exception as e:
+                    print(f"⚠️  Error loading thread history: {e}")
+                    messages = []
+            
             # Build input with context information
             agent_input = {
                 "input": question,
-                "chat_history": []
+                "chat_history": messages
             }
             
             # If context provided, add users_id to input so agent knows to use it in tools
@@ -206,6 +210,16 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
                 # Return a helpful message that encourages the user to provide more specific info
                 return "I want to help you find the perfect job! Could you provide a bit more detail? For example:\n- What type of job are you looking for? (e.g., marketing, IT, sales)\n- What's your preferred location? (e.g., Kigali, remote)\n\nOnce I have this information, I'll search for matching jobs right away!"
             
+            # If thread_id provided, save the conversation to the thread
+            if thread_id and output:
+                try:
+                    # Add user message to thread
+                    self.thread_manager.add_message(thread_id, question, "user")
+                    # Add assistant response to thread
+                    self.thread_manager.add_message(thread_id, output, "assistant")
+                except Exception as e:
+                    print(f"⚠️  Error saving to thread: {e}")
+            
             return output if output else "I apologize, but I couldn't generate a response."
         except Exception as error:
             error_str = str(error)
@@ -236,7 +250,8 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
         self,
         question: str,
         chat_history: List[Dict[str, str]] = None,
-        context: Optional[Dict] = None
+        context: Optional[Dict] = None,
+        thread_id: Optional[str] = None
     ) -> str:
         """
         Answer a question with conversation history.
@@ -245,29 +260,40 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             question: User's current question
             chat_history: List of previous messages in format [{"role": "user"|"assistant", "content": "..."}]
             context: Optional context dict with users_id, api_token, etc. for tools to use
+            thread_id: Optional OpenAI thread ID for persistent history
             
         Returns:
             Agent's response as a string
         """
         try:
-            if chat_history is None:
-                chat_history = []
-            
-            # Convert chat history to LangChain message format with explicit roles
-            # System role: AI instructions (already in prompt template)
-            # Human role: user messages
-            # AI role: assistant responses
-            messages = []
-            for msg in chat_history:
-                role = msg.get("role", "")
-                content = msg.get("content", "")
+            # If thread_id provided, get history from OpenAI thread
+            if thread_id:
+                try:
+                    thread_messages = self.thread_manager.get_messages(thread_id)
+                    messages = []
+                    for msg in thread_messages:
+                        if msg["role"] == "user":
+                            messages.append(HumanMessage(content=msg["content"]))
+                        elif msg["role"] == "assistant":
+                            messages.append(AIMessage(content=msg["content"]))
+                except Exception as e:
+                    print(f"⚠️  Error loading thread history: {e}")
+                    messages = []
+            else:
+                # Fallback to provided chat_history
+                if chat_history is None:
+                    chat_history = []
                 
-                if role == "user":
-                    # Human role: user's messages
-                    messages.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    # AI role: assistant's previous responses
-                    messages.append(AIMessage(content=content))
+                # Convert chat history to LangChain message format with explicit roles
+                messages = []
+                for msg in chat_history:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    
+                    if role == "user":
+                        messages.append(HumanMessage(content=content))
+                    elif role == "assistant":
+                        messages.append(AIMessage(content=content))
             
             # Build input with context information
             agent_input = {
@@ -306,6 +332,16 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
                 # Return a helpful message that encourages the user to provide more specific info
                 return "I want to help you find the perfect job! Could you provide a bit more detail? For example:\n- What type of job are you looking for? (e.g., marketing, IT, sales)\n- What's your preferred location? (e.g., Kigali, remote)\n\nOnce I have this information, I'll search for matching jobs right away!"
             
+            # If thread_id provided, save the conversation to the thread
+            if thread_id and output:
+                try:
+                    # Add user message to thread
+                    self.thread_manager.add_message(thread_id, question, "user")
+                    # Add assistant response to thread
+                    self.thread_manager.add_message(thread_id, output, "assistant")
+                except Exception as e:
+                    print(f"⚠️  Error saving to thread: {e}")
+            
             return output if output else "I apologize, but I couldn't generate a response."
         except Exception as error:
             error_str = str(error)
@@ -331,4 +367,39 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
                 )
             else:
                 raise Exception(f"Failed to process your question: {error_str}")
+    
+    def create_thread(self, metadata: Optional[Dict[str, str]] = None) -> str:
+        """Create a new OpenAI thread for this agent."""
+        return self.thread_manager.create_thread(metadata)
+    
+    def get_thread_messages(self, thread_id: str) -> List[Dict[str, Any]]:
+        """Get messages from a thread."""
+        return self.thread_manager.get_messages(thread_id)
+    
+    def generate_conversation_title(self, first_message: str, response: str) -> str:
+        """Generate AI conversation title from first exchange."""
+        try:
+            prompt = f"""Generate a short, descriptive title (max 40 characters) for this conversation:
 
+User: {first_message}
+Assistant: {response[:200]}...
+
+Title should be concise and capture the main topic. Examples:
+- "Job Search Help"
+- "CV Writing Tips"
+- "Interview Preparation"
+
+Title:"""
+            
+            result = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=20,
+                temperature=0.3
+            )
+            
+            title = result.choices[0].message.content.strip().strip('"')
+            return title[:40] if title else first_message[:40]
+        except Exception as e:
+            print(f"⚠️  Error generating title: {e}")
+            return first_message[:40]

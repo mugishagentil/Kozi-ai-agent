@@ -19,6 +19,8 @@ model ChatSession {
   users_id  Int
   role_type String        @default("employee") // "employee" or "employer"
   title     String?
+  thread_id String        @unique // OpenAI thread ID
+  is_active Boolean       @default(true) // Current active thread for user
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   messages  ChatMessage[]

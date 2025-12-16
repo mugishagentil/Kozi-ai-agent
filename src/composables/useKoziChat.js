@@ -759,7 +759,10 @@ const initializeUser = async () => {
   }
 
   const loadChatHistory = async (historyItem) => {
-    if (!historyItem.sessionId) return
+    if (!historyItem.sessionId || historyItem.sessionId === 'undefined') {
+      console.warn('⚠️ Cannot load history: invalid sessionId', historyItem.sessionId)
+      return
+    }
 
     console.log('Loading chat history for session:', historyItem.sessionId)
     
@@ -774,8 +777,8 @@ const initializeUser = async () => {
 
       let loadedMessages = []
       
-      if (data?.data?.messages && Array.isArray(data.data.messages)) {
-        loadedMessages = data.data.messages
+      if (data?.chat?.messages && Array.isArray(data.chat.messages)) {
+        loadedMessages = data.chat.messages
       } else if (data?.messages && Array.isArray(data.messages)) {
         loadedMessages = data.messages
       } else if (Array.isArray(data)) {
@@ -784,8 +787,8 @@ const initializeUser = async () => {
 
       if (loadedMessages.length > 0) {
         const msgs = loadedMessages.map((m) => ({
-          sender: m.type === 'user' ? 'user' : 'assistant',
-          text: m.type === 'user' ? m.content : formatMessage(m.content || m.message || ''),
+          sender: m.role === 'user' ? 'user' : 'assistant',
+          text: m.role === 'user' ? m.content : formatMessage(m.content || ''),
         }))
         
         console.log('Processed messages:', msgs)
@@ -920,7 +923,7 @@ const initializeUser = async () => {
                                   Date.now()
           
           return {
-            sessionId: session.id,
+            sessionId: session.thread_id || session.sessionId,
             title: session.title || 'New Chat',
             date: new Date(sessionTimestamp).toLocaleDateString('en-US', {
               month: 'short',
@@ -929,7 +932,7 @@ const initializeUser = async () => {
               minute: '2-digit',
             }),
             timestamp: sessionTimestamp,
-            messageCount: session.messages ? session.messages.length : 0,
+            messageCount: session.messageCount || (session.messages ? session.messages.length : 0),
             lastMessage: cleanLastMessage.substring(0, 100),
             createdAt: new Date(sessionTimestamp)
           }
@@ -1726,13 +1729,12 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
   }
 }
 async function getChatHistory(sessionId, rolePrefix = '/chat') {
-  const url = `${API_BASE}${rolePrefix}?action=loadPreviousSession`
-  console.log('Fetching chat history from:', url, 'with sessionId:', sessionId)
+  const url = `${API_BASE}${rolePrefix}/thread/${sessionId}`
+  console.log('Fetching chat history from:', url)
   
   const res = await fetchWithTimeout(url, {
-    method: 'POST',
+    method: 'GET',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ sessionId }),
     timeout: 10000
   })
   

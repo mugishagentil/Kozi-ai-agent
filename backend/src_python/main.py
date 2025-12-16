@@ -266,6 +266,8 @@ async def start_new_admin_chat(request: NewChatRequest, authorization: Optional[
 async def start_new_chat(request: NewChatRequest, authorization: Optional[str] = Header(None)):
     """Start a new chat session with OpenAI threads."""
     try:
+        print(f"Received new chat request: users_id={request.users_id}, role_type={request.role_type}, firstMessage={request.firstMessage[:50] if request.firstMessage else None}")
+        
         # Extract API token
         api_token = None
         if authorization:
@@ -353,12 +355,16 @@ async def start_new_chat(request: NewChatRequest, authorization: Optional[str] =
                 print(f"Error processing first message: {e}")
 
         return NewChatResponse(data={
+            "session_id": thread_id,
             "thread_id": thread_id,
             "title": title
         })
 
     except Exception as error:
+        import traceback
         print(f"Error starting new chat: {error}")
+        print(f"Full traceback:")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(error))
 
 # Get chat history by thread ID
@@ -456,7 +462,7 @@ async def get_chat_sessions(users_id: int, role_type: str = "employee", authoriz
                 first_message = thread_messages[0]["content"][:100] if thread_messages else "No messages"
                 
                 chats.append({
-                    "sessionId": session.id,
+                    "sessionId": session.thread_id,
                     "thread_id": session.thread_id,
                     "title": session.title or first_message,
                     "createdAt": session.createdAt.isoformat(),

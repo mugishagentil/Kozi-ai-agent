@@ -1465,6 +1465,38 @@ async function getUserFromLocalStorage() {
   }
 }
 
+// Check if JWT token is expired
+function isTokenExpired(token) {
+  if (!token) return true;
+  
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    
+    const payload = JSON.parse(atob(parts[1]));
+    const exp = payload.exp;
+    
+    if (!exp) return true;
+    
+    // Check if token expires in next 5 minutes (buffer)
+    const now = Math.floor(Date.now() / 1000);
+    const isExpired = exp < (now + 300);
+    
+    if (isExpired) {
+      console.warn('⚠️ Token expired or expiring soon:', {
+        expiresAt: new Date(exp * 1000).toISOString(),
+        now: new Date(now * 1000).toISOString(),
+        timeLeft: exp - now + ' seconds'
+      });
+    }
+    
+    return isExpired;
+  } catch (error) {
+    console.error('Error checking token expiration:', error);
+    return true;
+  }
+}
+
 // Helper function to get auth headers
 // FIXED: Update getAuthHeaders to check all token types
 function getAuthHeaders() {
@@ -1475,6 +1507,19 @@ function getAuthHeaders() {
   const agentToken = localStorage.getItem('agentToken');
   
   const token = employeeToken || employerToken || adminToken || agentToken;
+  
+  // Check if token is expired
+  if (token && isTokenExpired(token)) {
+    console.error('❌ Token has expired. Redirecting to login...');
+    // Clear expired tokens
+    localStorage.removeItem('employeeToken');
+    localStorage.removeItem('employerToken');
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('agentToken');
+    // Redirect to login
+    window.location.href = '/login';
+    throw new Error('Your session has expired. Please log in again.');
+  }
   
   const headers = {
     'Content-Type': 'application/json'

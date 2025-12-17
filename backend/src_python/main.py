@@ -287,22 +287,32 @@ async def start_new_chat(request: NewChatRequest, authorization: Optional[str] =
         }
         thread_id = agent.create_thread(metadata)
         
-        # Create ChatSession in database
+        # Create ChatSession via external API
         if users_id_to_use:
             try:
-                from database import get_db
-                db = await get_db()
-                await db.chatsession.create(
-                    data={
-                        "users_id": users_id_to_use,
-                        "role_type": request.role_type or "employee",
-                        "thread_id": thread_id,
-                        "is_active": True
-                    }
+                session_data = {
+                    "users_id": users_id_to_use,
+                    "role_type": request.role_type or "employee",
+                    "thread_id": thread_id,
+                    "title": title
+                }
+                
+                response = requests.post(
+                    f"{API_BASE_URL}/chat/start",
+                    json=session_data,
+                    headers={"Authorization": f"Bearer {api_token}"} if api_token else {},
+                    timeout=10.0
                 )
+                
+                if response.status_code != 200:
+                    print(f"⚠️ API returned status {response.status_code}")
+                
                 await user_thread_manager.set_thread_for_user(users_id_to_use, thread_id)
             except Exception as e:
-                print(f"Error creating ChatSession: {e}")
+                print(f"\n❌ API ERROR: {e}")
+                print(f"Error type: {type(e).__name__}")
+                import traceback
+                print(traceback.format_exc())
         print(f"Created new OpenAI thread: {thread_id}")
 
         # Process first message if provided
@@ -442,38 +452,39 @@ async def get_user_id_endpoint(authorization: Optional[str] = Header(None)):
 async def get_chat_sessions(users_id: int, role_type: str = "employee", authorization: Optional[str] = Header(None)):
     """Get user's chat sessions with thread history."""
     try:
-        from database import get_db
-        db = await get_db()
+        # Extract token
+        api_token = None
+        if authorization and authorization.startswith("Bearer "):
+            api_token = authorization[7:]
         
-        # Get user's all threads (like ChatGPT sidebar)
-        sessions = await db.chatsession.find_many(
-            where={"users_id": users_id},
-            order={"updatedAt": "desc"},
-            take=50
+        # Get sessions from external API
+        response = requests.get(
+            f"{API_BASE_URL}/chat/select/sessions/{users_id}",
+            headers={"Authorization": f"Bearer {api_token}"} if api_token else {},
+            timeout=10.0
         )
         
-        agent = get_agent_for_role(role_type)
-        chats = []
+        if response.status_code != 200:
+            print(f"⚠️ API returned status {response.status_code}")
+            return {"sessions": []}
         
+        sessions = response.json()
+        
+        # Format sessions for frontend
+        chats = []
         for session in sessions:
-            try:
-                # Get first message from OpenAI thread for preview
-                thread_messages = agent.get_thread_messages(session.thread_id)
-                first_message = thread_messages[0]["content"][:100] if thread_messages else "No messages"
-                
-                chats.append({
-                    "sessionId": session.thread_id,
-                    "thread_id": session.thread_id,
-                    "title": session.title or first_message,
-                    "createdAt": session.createdAt.isoformat(),
-                    "messageCount": len(thread_messages),
-                    "is_active": session.is_active
-                })
-            except Exception:
-                continue
+            chats.append({
+                "sessionId": session.get("thread_id"),
+                "thread_id": session.get("thread_id"),
+                "title": session.get("title") or "New Chat",
+                "createdAt": session.get("createdAt"),
+                "messageCount": 0,
+                "is_active": bool(session.get("is_active"))
+            })
         
         return {"sessions": chats}
-    except Exception:
+    except Exception as e:
+        print(f"❌ Error fetching sessions: {e}")
         return {"sessions": []}
 
 # Get employer's chat sessions

@@ -287,6 +287,9 @@ async def start_new_chat(request: NewChatRequest, authorization: Optional[str] =
         }
         thread_id = agent.create_thread(metadata)
         
+        # Initialize title
+        title = request.firstMessage[:40].strip() if request.firstMessage else "New Chat"
+        
         # Create ChatSession via external API
         if users_id_to_use:
             try:

@@ -530,11 +530,7 @@ const initializeUser = async () => {
             console.log('✅ Received title from backend:', data.data.title)
           }
           
-          // Dispatch event immediately after session creation so sidebar can load history
-          console.log('📢 Dispatching chatHistoryUpdated event after session creation')
-          window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
-            detail: { sessionId: data.data.session_id }
-          }))
+          // Session created - sidebar will update on next message
         } else {
           throw new Error('Failed to start session')
         }
@@ -664,30 +660,9 @@ const initializeUser = async () => {
         console.error('❌ Invalid botMessageIndex after streaming:', botMessageIndex, 'messages.length:', messages.value.length)
       }
       
-      // Save to history after message completes (ensures persistence)
+      // Save to history after message completes
       if (currentSession.value && messages.value.length > 0) {
         saveCurrentChatToHistory()
-        
-        // Reload history from backend to get updated title and ensure sidebar syncs
-        // Also dispatch event to notify sidebars to reload
-        if (currentUser.value) {
-          // Dispatch event immediately first (sidebar can load in background)
-          console.log('📢 Dispatching chatHistoryUpdated event after message completion')
-          window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
-            detail: { sessionId: currentSession.value }
-          }))
-          
-          // Then reload from backend after a short delay
-          setTimeout(async () => {
-            console.log('🔄 Reloading history from backend after message')
-            await loadHistoryFromBackend()
-            
-            // Dispatch event again after backend sync to ensure sidebar has latest data
-            window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
-              detail: { sessionId: currentSession.value }
-            }))
-          }, 1500)
-        }
       }
 
     } catch (e) {

@@ -376,30 +376,43 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
         """Get messages from a thread."""
         return self.thread_manager.get_messages(thread_id)
     
-    def generate_conversation_title(self, first_message: str, response: str) -> str:
-        """Generate AI conversation title from first exchange."""
+    def generate_conversation_title(self, first_message: str, response: str, second_message: str = None) -> str:
+        """Generate AI conversation title from first 2 messages, skipping greetings."""
         try:
-            prompt = f"""Generate a short, descriptive title (max 40 characters) for this conversation:
+            # Check if first message is just a greeting
+            greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening']
+            is_greeting = first_message.lower().strip() in greetings or len(first_message.strip()) < 5
+            
+            # Use second message if first is greeting
+            if is_greeting and second_message:
+                main_message = second_message
+            else:
+                main_message = first_message
+            
+            prompt = f"""Generate a short title (max 35 characters) for this conversation:
 
-User: {first_message}
-Assistant: {response[:200]}...
+User: {main_message}
+Assistant: {response[:150]}...
 
-Title should be concise and capture the main topic. Examples:
-- "Job Search Help"
-- "CV Writing Tips"
-- "Interview Preparation"
+Title must be:
+- Maximum 35 characters
+- Descriptive and clear
+- No quotes or special characters
+
+Examples: "Job Search", "CV Writing", "Interview Tips"
 
 Title:"""
             
             result = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=20,
+                max_tokens=15,
                 temperature=0.3
             )
             
-            title = result.choices[0].message.content.strip().strip('"')
-            return title[:40] if title else first_message[:40]
+            title = result.choices[0].message.content.strip().strip('"').strip("'")
+            # Ensure max 35 chars to prevent breaking sidebar
+            return title[:35] if title else main_message[:35]
         except Exception as e:
             print(f"⚠️  Error generating title: {e}")
-            return first_message[:40]
+            return main_message[:35] if 'main_message' in locals() else first_message[:35]

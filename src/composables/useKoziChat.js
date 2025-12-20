@@ -100,7 +100,7 @@ export function useKoziChat() {
     // Check if user is admin
     if (isAdmin) {
       console.log('🔍 Admin user detected, using admin API')
-      return '/admin/chat'
+      return '/chat/admin'
     }
     
     // Employee uses /chat, Employer uses /chat/employer

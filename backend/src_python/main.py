@@ -180,7 +180,7 @@ async def chat(request: ChatRequest, authorization: Optional[str] = Header(None)
         # Use provided thread_id or get user's active thread
         thread_id = request.thread_id
         if not thread_id and users_id_to_use:
-            thread_id = await user_thread_manager.get_thread_for_user(users_id_to_use)
+            thread_id = await user_thread_manager.get_thread_for_user(users_id_to_use, request.role_type or "employee")
         
         # Create new thread if none exists
         if not thread_id:
@@ -190,7 +190,7 @@ async def chat(request: ChatRequest, authorization: Optional[str] = Header(None)
                     "users_id": str(users_id_to_use)
                 }
                 thread_id = agent.create_thread(metadata)
-                await user_thread_manager.set_thread_for_user(users_id_to_use, thread_id)
+                await user_thread_manager.set_thread_for_user(users_id_to_use, thread_id, request.role_type or "employee")
                 print(f"Created new thread for user {users_id_to_use}: {thread_id}")
             else:
                 raise HTTPException(status_code=400, detail="Unable to identify user for thread creation")
@@ -310,7 +310,7 @@ async def start_new_chat(request: NewChatRequest, authorization: Optional[str] =
                 if response.status_code != 200:
                     print(f"⚠️ API returned status {response.status_code}")
                 
-                await user_thread_manager.set_thread_for_user(users_id_to_use, thread_id)
+                await user_thread_manager.set_thread_for_user(users_id_to_use, thread_id, request.role_type or "employee")
             except Exception as e:
                 print(f"\n❌ API ERROR: {e}")
                 print(f"Error type: {type(e).__name__}")
@@ -339,30 +339,7 @@ async def start_new_chat(request: NewChatRequest, authorization: Optional[str] =
                 # Generate simple title immediately
                 title = request.firstMessage[:40].strip()
                 
-                # Generate AI title in background (non-blocking)
-                import asyncio
-                import traceback
-                async def update_title_background():
-                    try:
-                        print(f"Starting background title generation for thread: {thread_id}")
-                        ai_title = agent.generate_conversation_title(request.firstMessage, response_text)
-                        print(f"Generated AI title: {ai_title}")
-                        
-                        from database import get_db
-                        db = await get_db()
-                        print(f"Connecting to database...")
-                        
-                        await db.chatsession.update(
-                            where={"thread_id": thread_id},
-                            data={"title": ai_title}
-                        )
-                        print(f"Updated title in database: {ai_title}")
-                    except Exception as e:
-                        print(f"Background title update failed: {e}")
-                        print(f"Full error traceback:")
-                        print(traceback.format_exc())
-                
-                asyncio.create_task(update_title_background())
+                # Title will be updated via external API on next message
 
             except Exception as e:
                 print(f"Error processing first message: {e}")

@@ -113,8 +113,15 @@ def get_agent_for_role(role_type: str):
     else:
         return jobseeker_agent
 
+import time
+from functools import lru_cache
+
+# Cache for user ID lookups
+user_id_cache = {}
+CACHE_EXPIRY = 3600  # 1 hour
+
 def get_user_id_from_token(authorization: Optional[str] = None, api_token: Optional[str] = None) -> Optional[int]:
-    """Extract user ID from token."""
+    """Extract user ID from token with caching."""
     token = api_token
     if not token and authorization:
         if authorization.startswith("Bearer "):
@@ -126,6 +133,16 @@ def get_user_id_from_token(authorization: Optional[str] = None, api_token: Optio
     
     if not token:
         return None
+    
+    # Check cache first
+    cache_key = token[:50]  # Use first 50 chars as key
+    if cache_key in user_id_cache:
+        cached_data = user_id_cache[cache_key]
+        if time.time() - cached_data['timestamp'] < CACHE_EXPIRY:
+            return cached_data['user_id']
+        else:
+            # Cache expired, remove it
+            del user_id_cache[cache_key]
     
     try:
         parts = token.split('.')
@@ -140,7 +157,13 @@ def get_user_id_from_token(authorization: Optional[str] = None, api_token: Optio
         payload = json.loads(base64.urlsafe_b64decode(payload_str))
         user_id = payload.get('users_id') or payload.get('user_id') or payload.get('id')
         if user_id:
-            return int(user_id)
+            user_id = int(user_id)
+            # Cache the result
+            user_id_cache[cache_key] = {
+                'user_id': user_id,
+                'timestamp': time.time()
+            }
+            return user_id
         
         user_email = payload.get('email')
         if not user_email:
@@ -149,12 +172,19 @@ def get_user_id_from_token(authorization: Optional[str] = None, api_token: Optio
         response = requests.get(
             f"{API_BASE_URL}/get_user_id_by_email/{user_email}",
             headers={"Authorization": f"Bearer {token}"},
-            timeout=5.0
+            timeout=2.0  # Reduced timeout
         )
         
         if response.status_code == 200:
             data = response.json()
-            return data.get("users_id")
+            user_id = data.get("users_id")
+            if user_id:
+                # Cache the result
+                user_id_cache[cache_key] = {
+                    'user_id': user_id,
+                    'timestamp': time.time()
+                }
+            return user_id
         
         return None
         
@@ -290,59 +320,43 @@ async def start_new_chat(request: NewChatRequest, authorization: Optional[str] =
         # Initialize title
         title = request.firstMessage[:40].strip() if request.firstMessage else "New Chat"
         
-        # Create ChatSession via external API
+        # Create ChatSession via external API (async - non-blocking)
         if users_id_to_use:
-            try:
-                session_data = {
-                    "users_id": users_id_to_use,
-                    "role_type": request.role_type or "employee",
-                    "thread_id": thread_id,
-                    "title": title
-                }
-                
-                response = requests.post(
-                    f"{API_BASE_URL}/chat/start",
-                    json=session_data,
-                    headers={"Authorization": f"Bearer {api_token}"} if api_token else {},
-                    timeout=10.0
-                )
-                
-                if response.status_code != 200:
-                    print(f"⚠️ API returned status {response.status_code}")
-                
-                await user_thread_manager.set_thread_for_user(users_id_to_use, thread_id, request.role_type or "employee")
-            except Exception as e:
-                print(f"\n❌ API ERROR: {e}")
-                print(f"Error type: {type(e).__name__}")
-                import traceback
-                print(traceback.format_exc())
+            async def create_session_background():
+                try:
+                    session_data = {
+                        "users_id": users_id_to_use,
+                        "role_type": request.role_type or "employee",
+                        "thread_id": thread_id,
+                        "title": title
+                    }
+                    
+                    response = requests.post(
+                        f"{API_BASE_URL}/chat/start",
+                        json=session_data,
+                        headers={"Authorization": f"Bearer {api_token}"} if api_token else {},
+                        timeout=3.0  # Reduced timeout
+                    )
+                    
+                    if response.status_code != 200:
+                        print(f"⚠️ API returned status {response.status_code}")
+                    
+                    await user_thread_manager.set_thread_for_user(users_id_to_use, thread_id, request.role_type or "employee")
+                except Exception as e:
+                    print(f"❌ Background session creation failed: {e}")
+            
+            # Start background task - don't wait for completion
+            import asyncio
+            asyncio.create_task(create_session_background())
         print(f"Created new OpenAI thread: {thread_id}")
 
         # Process first message if provided
-        title = None
         if request.firstMessage:
-            try:
-                # Prepare context
-                agent_context = {}
-                if users_id_to_use:
-                    agent_context['users_id'] = users_id_to_use
-                if api_token:
-                    agent_context['api_token'] = api_token
-
-                # Use thread for conversation
-                response_text = agent.answer_question(
-                    request.firstMessage,
-                    context=agent_context if agent_context else None,
-                    thread_id=thread_id
-                )
-
-                # Generate simple title immediately
-                title = request.firstMessage[:40].strip()
-                
-                # Title will be updated via external API on next message
-
-            except Exception as e:
-                print(f"Error processing first message: {e}")
+            # Don't process here - let frontend make separate call to /api/chat/employer
+            # This prevents duplicate processing
+            title = request.firstMessage[:40].strip()
+        else:
+            title = "New Chat"
 
         return NewChatResponse(data={
             "session_id": thread_id,

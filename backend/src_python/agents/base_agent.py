@@ -137,15 +137,15 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             prompt=self.prompt_template
         )
         
-        # Create agent executor with verbose mode to debug tool calls
+        # Create agent executor with optimized settings for production
         self.agent_executor = AgentExecutor(
             agent=self.agent,
             tools=self.tools,
-            verbose=True,  # Enabled to debug tool calls - see what LLM decides
+            verbose=False,  # Disabled for production performance
             handle_parsing_errors=True,
-            max_iterations=5,  # Increased to 5 to allow tool calls (was 2 - too low, causing max iterations errors)
-            max_execution_time=30,  # Increased to 30 seconds to allow API calls
-            return_intermediate_steps=True,  # Return intermediate steps to see tool calls
+            max_iterations=3,  # Reduced for faster responses
+            max_execution_time=15,  # Reduced timeout
+            return_intermediate_steps=False,  # Disabled for performance
         )
 
     def answer_question(self, question: str, context: Optional[Dict] = None, thread_id: Optional[str] = None) -> str:
@@ -160,17 +160,23 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
         Returns:
             Agent's response as a string
         """
+        import time
+        start_time = time.time()
+        
         try:
-            # If thread_id provided, get history from OpenAI thread
+            # If thread_id provided, get history from OpenAI thread (limit to last 6 messages for performance)
             messages = []
             if thread_id:
+                history_start = time.time()
                 try:
-                    thread_messages = self.thread_manager.get_messages(thread_id)
+                    thread_messages = self.thread_manager.get_messages(thread_id, limit=6)  # Only last 6 messages
                     for msg in thread_messages:
                         if msg["role"] == "user":
                             messages.append(HumanMessage(content=msg["content"]))
                         elif msg["role"] == "assistant":
                             messages.append(AIMessage(content=msg["content"]))
+                    if len(messages) > 0:
+                        print(f"📚 Loaded {len(messages)} recent messages ({time.time() - history_start:.2f}s)")
                 except Exception as e:
                     print(f"⚠️  Error loading thread history: {e}")
                     messages = []
@@ -192,17 +198,10 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
                     os.environ['API_TOKEN'] = context['api_token']
                     print(f"🔑 API token set in environment for tools")
             
-            # Log what we're sending to the agent
-            print(f"📤 Sending to agent: {question[:100]}...")
-            print(f"🛠️  Available tools: {[tool.name for tool in self.tools]}")
-            
+            # Process with agent
+            ai_start = time.time()
             result = self.agent_executor.invoke(agent_input)
-            
-            # Log intermediate steps to see if tools were called
-            if 'intermediate_steps' in result:
-                print(f"🔧 Intermediate steps: {len(result['intermediate_steps'])}")
-                for i, step in enumerate(result['intermediate_steps']):
-                    print(f"   Step {i+1}: {step}")
+            ai_time = time.time() - ai_start
             
             # Check if agent stopped due to max iterations
             output = result.get("output", "")
@@ -212,18 +211,26 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             
             # If thread_id provided, save the conversation to the thread
             if thread_id and output:
+                save_start = time.time()
                 try:
                     # Add user message to thread
                     self.thread_manager.add_message(thread_id, question, "user")
                     # Add assistant response to thread
                     self.thread_manager.add_message(thread_id, output, "assistant")
+                    save_time = time.time() - save_start
+                    print(f"💾 Saved to thread ({save_time:.2f}s)")
                 except Exception as e:
                     print(f"⚠️  Error saving to thread: {e}")
             
+            total_time = time.time() - start_time
+            print(f"⏱️  Total response time: {total_time:.2f}s (AI: {ai_time:.2f}s)")
+            
             return output if output else "I apologize, but I couldn't generate a response."
         except Exception as error:
+            total_time = time.time() - start_time
+            print(f"❌ Error after {total_time:.2f}s: {error}")
+            
             error_str = str(error)
-            print(f"Error processing question: {error}")
             
             # Check for max iterations in exception message
             if "max iterations" in error_str.lower() or "max_iterations" in error_str.lower():
@@ -266,10 +273,10 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             Agent's response as a string
         """
         try:
-            # If thread_id provided, get history from OpenAI thread
+            # If thread_id provided, get history from OpenAI thread (limit to last 6 messages for performance)
             if thread_id:
                 try:
-                    thread_messages = self.thread_manager.get_messages(thread_id)
+                    thread_messages = self.thread_manager.get_messages(thread_id, limit=6)  # Only last 6 messages
                     messages = []
                     for msg in thread_messages:
                         if msg["role"] == "user":
@@ -312,19 +319,19 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
                     os.environ['API_TOKEN'] = context['api_token']
                     print(f"🔑 API token set in environment for tools")
             
-            # Log what we're sending to the agent
-            print(f"📤 Sending to agent: {question[:100]}...")
-            print(f"📚 Chat history: {len(messages)} messages")
-            print(f"🛠️  Available tools: {[tool.name for tool in self.tools]}")
+            # Log what we're sending to the agent (disabled for performance)
+            # print(f"📤 Sending to agent: {question[:100]}...")
+            # print(f"📚 Chat history: {len(messages)} messages")
+            # print(f"🛠️  Available tools: {[tool.name for tool in self.tools]}")
             
             # Use agent executor with history
             result = self.agent_executor.invoke(agent_input)
             
-            # Log intermediate steps to see if tools were called
-            if 'intermediate_steps' in result:
-                print(f"🔧 Intermediate steps: {len(result['intermediate_steps'])}")
-                for step in result['intermediate_steps']:
-                    print(f"   Step: {step}")
+            # Log intermediate steps to see if tools were called (disabled for performance)
+            # if 'intermediate_steps' in result:
+            #     print(f"🔧 Intermediate steps: {len(result['intermediate_steps'])}")
+            #     for step in result['intermediate_steps']:
+            #         print(f"   Step: {step}")
             
             # Check if agent stopped due to max iterations
             output = result.get("output", "")

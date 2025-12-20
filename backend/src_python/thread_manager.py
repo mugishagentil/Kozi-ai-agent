@@ -57,13 +57,13 @@ class ThreadManager:
             print(f"⚠️  Error adding message to thread {thread_id}: {e}")
             raise
     
-    def get_messages(self, thread_id: str, limit: int = 6) -> List[Dict[str, Any]]:
+    def get_messages(self, thread_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Get messages from a thread."""
         try:
             messages = self.client.beta.threads.messages.list(
                 thread_id=thread_id,
-                limit=limit,  # Use the provided limit (default 6 for performance)
-                order="desc"  # Get most recent first
+                limit=limit,  # Return all messages (up to 100)
+                order="asc"  # Get oldest first for proper chronological order
             )
             
             formatted_messages = []

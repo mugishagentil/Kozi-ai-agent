@@ -225,7 +225,7 @@ async def chat(request: ChatRequest, authorization: Optional[str] = Header(None)
             else:
                 raise HTTPException(status_code=400, detail="Unable to identify user for thread creation")
 
-        print(f"Question received: {request.message[:100]}... (Thread: {thread_id}, Role: {request.role_type})")
+        print(f"Question received: {request.message[:100]}... (Thread: {thread_id}, Role: {request.role_type}, User: {users_id_to_use})")
 
         # Extract API token from Authorization header if not in request body
         api_token = request.api_token
@@ -249,7 +249,7 @@ async def chat(request: ChatRequest, authorization: Optional[str] = Header(None)
             thread_id=thread_id
         )
 
-        print(f"Response generated ({len(response_text)} characters)")
+        print(f"Response generated ({len(response_text)} characters) - Thread: {thread_id}")
 
         return ChatResponse(
             response=response_text,

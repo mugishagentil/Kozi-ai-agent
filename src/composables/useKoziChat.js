@@ -1581,7 +1581,7 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({ 
-      sessionId, 
+      thread_id: sessionId,  // Backend expects thread_id, not sessionId
       message, 
       isFirstUserMessage
     }),

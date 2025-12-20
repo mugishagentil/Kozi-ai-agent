@@ -164,19 +164,19 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
         start_time = time.time()
         
         try:
-            # If thread_id provided, get history from OpenAI thread (limit to last 6 messages for performance)
+            # If thread_id provided, get history from OpenAI thread
             messages = []
             if thread_id:
                 history_start = time.time()
                 try:
-                    thread_messages = self.thread_manager.get_messages(thread_id, limit=6)  # Only last 6 messages
+                    thread_messages = self.thread_manager.get_messages(thread_id)  # Get all messages
                     for msg in thread_messages:
                         if msg["role"] == "user":
                             messages.append(HumanMessage(content=msg["content"]))
                         elif msg["role"] == "assistant":
                             messages.append(AIMessage(content=msg["content"]))
                     if len(messages) > 0:
-                        print(f"📚 Loaded {len(messages)} recent messages ({time.time() - history_start:.2f}s)")
+                        print(f"📚 Loaded {len(messages)} messages ({time.time() - history_start:.2f}s)")
                 except Exception as e:
                     print(f"⚠️  Error loading thread history: {e}")
                     messages = []
@@ -273,10 +273,10 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             Agent's response as a string
         """
         try:
-            # If thread_id provided, get history from OpenAI thread (limit to last 6 messages for performance)
+            # If thread_id provided, get history from OpenAI thread
             if thread_id:
                 try:
-                    thread_messages = self.thread_manager.get_messages(thread_id, limit=6)  # Only last 6 messages
+                    thread_messages = self.thread_manager.get_messages(thread_id)  # Get all messages
                     messages = []
                     for msg in thread_messages:
                         if msg["role"] == "user":

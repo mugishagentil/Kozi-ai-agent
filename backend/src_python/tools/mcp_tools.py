@@ -56,6 +56,37 @@ def get_api_token(context: Optional[Dict] = None) -> Optional[str]:
     return token
 
 
+def extract_thread_id_from_context(input_text: str = None) -> Optional[str]:
+    """
+    Extract thread ID from input context or API request.
+    
+    Args:
+        input_text: Input text that may contain thread ID
+        
+    Returns:
+        Thread ID string or None if not found
+    """
+    # Try to get from environment (set by external API/frontend)
+    thread_id = os.getenv('CURRENT_THREAD_ID')
+    if thread_id:
+        return thread_id
+    
+    # Try to extract from input text pattern
+    if input_text:
+        import re
+        match = re.search(r'\[Thread ID:\s*([^\]]+)\]', input_text)
+        if match:
+            return match.group(1).strip()
+    
+    # Try to get from request headers or context (would be set by API handler)
+    thread_id = os.getenv('REQUEST_THREAD_ID')
+    if thread_id:
+        return thread_id
+    
+    return None
+
+
+
 def extract_user_id_from_input(input_text: str) -> Optional[int]:
     """
     Extract user ID from input text that contains "[User ID: XXX]" format.
@@ -129,28 +160,54 @@ def validate_search_query(query: str, category: str = None) -> tuple[bool, str]:
     if not query and not category:
         return True, ""  # Allow empty searches to show all jobs
     
-    # Define nonsensical patterns
+    combined_text = f"{query} {category or ''}".strip().lower()
+    
+    # Skip validation if no meaningful text
+    if not combined_text:
+        return True, ""
+    
+    import re
+    
+    # Define nonsensical patterns - MORE STRICT
     nonsensical_patterns = [
         r'^[^a-zA-Z0-9\s]+$',  # Only special characters
         r'^\s*$',  # Only whitespace
         r'^.{1,2}$',  # Too short (1-2 characters)
-        r'(.)\1{4,}',  # Repeated characters (aaaaa)
+        r'(.)\1{3,}',  # Repeated characters (aaaa)
         r'^\d+$',  # Only numbers
+        r'^[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]{6,}$',  # Too many consonants (gibberish)
     ]
     
-    combined_text = f"{query} {category or ''}".strip().lower()
-    
     # Check for nonsensical patterns
-    import re
     for pattern in nonsensical_patterns:
         if re.search(pattern, combined_text):
             return False, "❌ Please provide a meaningful job search term (e.g., 'marketing', 'sales', 'IT jobs')."
     
-    # Check for random gibberish (no vowels in long strings)
+    # Enhanced gibberish detection
     if len(combined_text) > 5:
         vowels = 'aeiou'
-        if not any(v in combined_text for v in vowels):
-            return False, "❌ Please provide a valid job search term. Try categories like 'sales', 'marketing', 'IT', or 'healthcare'."
+        consonants = 'bcdfghjklmnpqrstvwxyz'
+        
+        # Check vowel ratio - gibberish usually has very few vowels
+        vowel_count = sum(1 for c in combined_text if c in vowels)
+        consonant_count = sum(1 for c in combined_text if c in consonants)
+        total_letters = vowel_count + consonant_count
+        
+        if total_letters > 0:
+            vowel_ratio = vowel_count / total_letters
+            # If less than 15% vowels, likely gibberish
+            if vowel_ratio < 0.15:
+                return False, "❌ Please provide a valid job search term. Try categories like 'sales', 'marketing', 'IT', or 'healthcare'."
+    
+    # Check for common gibberish patterns
+    gibberish_patterns = [
+        r'[qwrtypsdfghjklzxcvbnm]{8,}',  # Long sequences of consonants
+        r'[bcdfghjklmnpqrstvwxyz]{5,}[bcdfghjklmnpqrstvwxyz]{3,}',  # Multiple consonant clusters
+    ]
+    
+    for pattern in gibberish_patterns:
+        if re.search(pattern, combined_text, re.IGNORECASE):
+            return False, "❌ Please provide a meaningful job search term. Try specific job titles or categories."
     
     return True, ""
 
@@ -359,7 +416,7 @@ def search_jobs(
                 'education': ['teacher', 'education', 'training', 'instructor', 'academic'],
                 'construction': ['construction', 'building', 'engineer', 'architect', 'contractor'],
                 'hospitality': ['hotel', 'restaurant', 'tourism', 'hospitality', 'service'],
-                'transport': ['driver', 'transport', 'logistics', 'delivery', 'shipping'],
+                'transport': ['driver', 'transport', 'logistics', 'delivery', 'shipping', 'driving'],
                 'agriculture': ['agriculture', 'farming', 'crop', 'livestock', 'agricultural']
             }
             
@@ -368,10 +425,12 @@ def search_jobs(
             for valid_cat, keywords in valid_categories.items():
                 if category_lower == valid_cat or category_lower in keywords:
                     category_keywords = keywords
+                    print(f"🔍 Category '{category}' matched to '{valid_cat}' with keywords: {keywords}")
                     break
             
             # If category is not recognized, suggest alternatives
             if not category_keywords:
+                print(f"❌ Category '{category}' not recognized in valid categories")
                 # Check for partial matches
                 suggestions = []
                 for valid_cat, keywords in valid_categories.items():
@@ -406,30 +465,29 @@ def search_jobs(
                 normalized_jobs = filtered_jobs
                 print(f"🔍 Filtered to {len(normalized_jobs)} jobs matching category '{category}'")
             else:
+                print(f"❌ No jobs matched category '{category}' keywords: {category_keywords}")
                 return f"❌ No jobs found in '{category}' category. Try searching for jobs in other categories like: {', '.join(list(valid_categories.keys())[:5])}."
-        
-        # Store jobs for frontend display with thread memory
-        jobs_for_display = normalized_jobs[:10]
-        
-        # Store in thread-specific memory
-        search_params = {
-            'query': query,
-            'category': category,
-            'location': location
-        }
-        store_jobs_for_thread(jobs_for_display, search_params)
-        
-        print(f"📋 STORED {len(jobs_for_display)} jobs for thread {get_thread_id()}")
-        
-        # CRITICAL: Also store in agent instance for immediate access
-        import os
-        os.environ['JOBS_DATA_AVAILABLE'] = 'true'
         
         # Enhanced result formatting with better filtering
         display_limit = min(len(normalized_jobs), 10)  # Limit to 10 for better UX
         
         if len(normalized_jobs) == 0:
+            # Clear any existing jobs data since no jobs found
+            global _current_jobs_data
+            _current_jobs_data = None
             return "❌ No jobs found matching your criteria. Try adjusting your search terms or category."
+        
+        # Store jobs for frontend display - only the ones shown in text
+        jobs_shown_in_text = normalized_jobs[:display_limit]  # Only jobs shown in text
+        
+        # Store globally for cards and backward compatibility
+        _current_jobs_data = jobs_shown_in_text
+        
+        print(f"📋 STORED {len(jobs_shown_in_text)} jobs for display and cards (matching text)")
+        print(f"📋 First job stored: {jobs_shown_in_text[0].get('job_title', 'No title') if jobs_shown_in_text else 'None'}")
+        
+        # CRITICAL: Also store in agent instance for immediate access
+        os.environ['JOBS_DATA_AVAILABLE'] = 'true'
         
         result_msg = f"✅ Found {len(normalized_jobs)} relevant job(s)"
         if category:
@@ -454,7 +512,7 @@ def search_jobs(
             result_msg += f"... and {len(normalized_jobs) - display_limit} more jobs available.\n"
         
         print(f"✅ search_jobs completed successfully, found {len(normalized_jobs)} jobs, displaying {display_limit} jobs")
-        print(f"📋 Jobs stored for thread {get_thread_id()}: {len(get_jobs_for_thread())} jobs")
+        print(f"📋 Jobs stored: {len(_current_jobs_data)} jobs (matching text display)")
         return result_msg
         
     except requests.exceptions.RequestException as e:
@@ -690,13 +748,13 @@ def find_matching_jobs_for_user(
         if not is_valid:
             return f"Profile-based search validation failed: {validation_msg}"
         
-        result = search_jobs(
-            query=search_query,
-            category=category_preference,
-            location=location_preference,
-            fetch_all=True,
-            api_token=token
-        )
+        result = search_jobs.invoke({
+            "query": search_query,
+            "category": category_preference,
+            "location": location_preference,
+            "fetch_all": True,
+            "api_token": token
+        })
         
         # Add context about what was matched
         formatted = [f"**Personalized Job Recommendations Based on Your Profile:**\n"]
@@ -932,13 +990,11 @@ def get_or_create_thread_id(provided_thread_id=None):
 
 def store_conversation_data(thread_id, data_type, data):
     """Store data for specific thread conversation."""
-    global _thread_conversations, _current_jobs_data
+    global _thread_conversations
     if thread_id not in _thread_conversations:
         _thread_conversations[thread_id] = {'created': __import__('time').time(), 'jobs': [], 'history': []}
     _thread_conversations[thread_id][data_type] = data
     _thread_conversations[thread_id]['updated'] = __import__('time').time()
-    if data_type == 'jobs':
-        _current_jobs_data = data
 
 def get_conversation_data(thread_id, data_type):
     """Get data for specific thread conversation."""

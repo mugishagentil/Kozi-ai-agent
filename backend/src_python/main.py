@@ -241,6 +241,10 @@ async def chat(request: ChatRequest, authorization: Optional[str] = Header(None)
             agent_context['users_id'] = users_id_to_use
         if api_token:
             agent_context['api_token'] = api_token
+        if thread_id:
+            agent_context['thread_id'] = thread_id
+            # Set environment variable for tools to access
+            os.environ['CURRENT_THREAD_ID'] = thread_id
 
         # Use thread-based conversation
         response_text = agent.answer_question(
@@ -560,6 +564,10 @@ async def chat_stream(request: ChatRequest, authorization: Optional[str] = Heade
             agent_context['users_id'] = users_id_to_use
         if api_token:
             agent_context['api_token'] = api_token
+        if thread_id:
+            agent_context['thread_id'] = thread_id
+            # Set environment variable for tools to access
+            os.environ['CURRENT_THREAD_ID'] = thread_id
 
         def generate_response():
             try:

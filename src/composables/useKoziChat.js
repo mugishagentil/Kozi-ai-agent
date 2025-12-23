@@ -1575,8 +1575,8 @@ async function startSession(users_id, firstMessage, rolePrefix = '/chat') {
 
 // 🚀 Streaming message function
 async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk, onJobs, onCandidates, onTitle, rolePrefix = '/chat') {
-  const url = `${API_BASE}${rolePrefix}`
-  console.log('🚀 AI Chat calling:', url, 'with API_BASE:', API_BASE)
+  const url = `${API_BASE}${rolePrefix}/stream`
+  console.log('🚀 AI Chat calling streaming endpoint:', url, 'with API_BASE:', API_BASE)
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: getAuthHeaders(),
@@ -1732,6 +1732,7 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
         if (event.content) {
           onChunk(event.content, null)
         } else if (event.jobs) {
+          console.log('📋 Received jobs data:', event.jobs.length, 'jobs')
           onJobs(event.jobs)
         } else if (event.candidates) {
           onCandidates(event.candidates)

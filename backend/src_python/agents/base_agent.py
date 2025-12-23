@@ -203,11 +203,19 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             result = self.agent_executor.invoke(agent_input)
             ai_time = time.time() - ai_start
             
+            # Check for job data after tool execution
+            jobs_data = self._check_for_jobs_data()
+            
             # Check if agent stopped due to max iterations
             output = result.get("output", "")
             if "Agent stopped due to max iterations" in output or "max iterations" in output.lower():
                 # Return a helpful message that encourages the user to provide more specific info
                 return "I want to help you find the perfect job! Could you provide a bit more detail? For example:\n- What type of job are you looking for? (e.g., marketing, IT, sales)\n- What's your preferred location? (e.g., Kigali, remote)\n\nOnce I have this information, I'll search for matching jobs right away!"
+            
+            # If we have jobs data, store it for the frontend
+            if jobs_data:
+                self._current_jobs_data = jobs_data
+                print(f"📋 Found {len(jobs_data)} jobs to display as cards")
             
             # If thread_id provided, save the conversation to the thread
             if thread_id and output:
@@ -327,6 +335,9 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             # Use agent executor with history
             result = self.agent_executor.invoke(agent_input)
             
+            # Check for job data after tool execution
+            jobs_data = self._check_for_jobs_data()
+            
             # Log intermediate steps to see if tools were called (disabled for performance)
             # if 'intermediate_steps' in result:
             #     print(f"🔧 Intermediate steps: {len(result['intermediate_steps'])}")
@@ -338,6 +349,11 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             if "Agent stopped due to max iterations" in output or "max iterations" in output.lower():
                 # Return a helpful message that encourages the user to provide more specific info
                 return "I want to help you find the perfect job! Could you provide a bit more detail? For example:\n- What type of job are you looking for? (e.g., marketing, IT, sales)\n- What's your preferred location? (e.g., Kigali, remote)\n\nOnce I have this information, I'll search for matching jobs right away!"
+            
+            # If we have jobs data, store it for the frontend
+            if jobs_data:
+                self._current_jobs_data = jobs_data
+                print(f"📋 Found {len(jobs_data)} jobs to display as cards")
             
             # If thread_id provided, save the conversation to the thread
             if thread_id and output:
@@ -423,3 +439,27 @@ Title:"""
         except Exception as e:
             print(f"⚠️  Error generating title: {e}")
             return main_message[:35] if 'main_message' in locals() else first_message[:35]
+    
+    def _check_for_jobs_data(self):
+        """Check if there's job data available from tools."""
+        try:
+            from tools.mcp_tools import get_current_jobs_data
+            jobs_data = get_current_jobs_data()
+            if jobs_data:
+                self._current_jobs_data = jobs_data
+            return jobs_data
+        except ImportError:
+            return None
+    
+    def get_jobs_data(self):
+        """Get current jobs data for frontend display."""
+        return getattr(self, '_current_jobs_data', None) or self._check_for_jobs_data()
+    
+    def clear_jobs_data(self):
+        """Clear current jobs data."""
+        self._current_jobs_data = None
+        try:
+            from tools.mcp_tools import clear_current_jobs_data
+            clear_current_jobs_data()
+        except ImportError:
+            pass

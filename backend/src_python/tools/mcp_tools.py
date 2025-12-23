@@ -118,7 +118,7 @@ def search_jobs(
         Formatted string with job search results including job titles, companies, locations, and descriptions
     """
     try:
-        print(f"🔍 search_jobs called with: category={category}, location={location}, fetch_all={fetch_all}")
+        print(f"🔍 search_jobs called with: query='{query}', category='{category}', location='{location}', fetch_all={fetch_all}")
         print(f"🌐 Using JOBS_API_URL: {JOBS_API_URL}")
         
         if not JOBS_API_URL:
@@ -241,39 +241,87 @@ def search_jobs(
             print(f"ℹ️  {no_jobs_msg}")
             return no_jobs_msg
         
-        # Format results
-        formatted = [f"Found {len(all_jobs)} job(s)"]
-        if fetch_all and current_page > 1:
-            formatted[0] += f" across {current_page} page(s)"
-        formatted[0] += ":\n\n"
+        # Normalize job data for frontend display
+        normalized_jobs = []
+        for job in all_jobs:
+            normalized_job = {
+                'job_id': job.get('id') or job.get('job_id'),
+                'job_title': job.get('title') or job.get('job_title') or 'Untitled',
+                'company': job.get('company') or job.get('company_name') or 'Company',
+                'location': job.get('location') or job.get('job_location'),
+                'description': job.get('description'),
+                'employment_type': job.get('employment_type') or job.get('type') or 'Full Time',
+                'salary_min': job.get('salary_min') or job.get('min_salary'),
+                'salary_max': job.get('salary_max') or job.get('max_salary'),
+                'deadline': job.get('deadline') or job.get('application_deadline'),
+                'logo': job.get('logo') or job.get('company_logo'),
+                'category': job.get('category') or job.get('category_name'),
+                'created_at': job.get('created_at') or job.get('posted_date')
+            }
+            normalized_jobs.append(normalized_job)
         
-        # Show all jobs (or top 50 if too many)
-        display_limit = min(len(all_jobs), 50) if len(all_jobs) > 50 else len(all_jobs)
-        
-        for i, job in enumerate(all_jobs[:display_limit], 1):
-            formatted.append(f"{i}. **{job.get('title', job.get('job_title', 'Untitled'))}**")
+        # Filter jobs by category if specified (since API filtering may not work)
+        if category and normalized_jobs:
+            category_lower = category.lower()
+            filtered_jobs = []
+            for job in normalized_jobs:
+                job_title = (job.get('job_title') or '').lower()
+                job_category = (job.get('category') or '').lower()
+                job_description = (job.get('description') or '').lower()
+                
+                # Check if job matches the requested category
+                if (category_lower in job_title or 
+                    category_lower in job_category or 
+                    category_lower in job_description or
+                    (category_lower == 'it' and any(tech_word in job_title for tech_word in ['developer', 'programmer', 'software', 'tech', 'system', 'data', 'web']))):
+                    filtered_jobs.append(job)
             
-            if job.get('company') or job.get('company_name'):
-                formatted.append(f"   Company: {job.get('company') or job.get('company_name')}")
-            if job.get('location') or job.get('job_location'):
-                formatted.append(f"   Location: {job.get('location') or job.get('job_location')}")
-            if job.get('category') or job.get('category_name'):
-                formatted.append(f"   Category: {job.get('category') or job.get('category_name')}")
-            if job.get('salary') or job.get('salary_range'):
-                formatted.append(f"   Salary: {job.get('salary') or job.get('salary_range')}")
-            if job.get('description'):
-                desc = str(job.get('description', ''))[:100]
-                formatted.append(f"   Description: {desc}...")
-            if job.get('id') or job.get('job_id'):
-                formatted.append(f"   ID: {job.get('id') or job.get('job_id')}")
-            formatted.append("")
+            if filtered_jobs:
+                normalized_jobs = filtered_jobs
+                print(f"🔍 Filtered to {len(normalized_jobs)} jobs matching category '{category}'")
+            else:
+                print(f"⚠️  No jobs found matching category '{category}', showing all results")
         
+        # Store jobs for frontend display (this will be picked up by the agent)
+        import json
+        jobs_json = json.dumps(normalized_jobs[:20])  # Limit to 20 jobs for display
+        
+        # Clear any existing jobs data before new search
+        global _current_jobs_data
+        print(f"🧹 CLEARING jobs data - before: {len(_current_jobs_data) if _current_jobs_data else 0} jobs")
+        clear_current_jobs_data()
+        
+        # Set a flag to indicate jobs should be displayed as cards
+        # This will be used by the agent to send job data to frontend
+        _current_jobs_data = normalized_jobs[:20]
+        print(f"📋 STORING {len(_current_jobs_data)} jobs for display")
+        print(f"   First job: {_current_jobs_data[0].get('job_title', 'No title')} at {_current_jobs_data[0].get('company', 'No company')}")
+        print(f"   All job titles: {[job.get('job_title', 'No title') for job in _current_jobs_data[:5]]}")
+        
+        # CRITICAL: Also store in agent instance for immediate access
+        import os
+        os.environ['JOBS_DATA_AVAILABLE'] = 'true'
+        
+        # Return a user-friendly message WITH the actual job data for LLM to use
+        display_limit = min(len(all_jobs), 20)
+        result_msg = f"Found {len(all_jobs)} job(s)"
         if len(all_jobs) > display_limit:
-            formatted.append(f"\n... and {len(all_jobs) - display_limit} more job(s). Use more specific filters to narrow results.")
+            result_msg += f", showing top {display_limit}"
+        result_msg += ". Here are the available positions:\n\n"
         
-        result_text = "\n".join(formatted)
-        print(f"✅ search_jobs completed successfully, found {len(all_jobs)} jobs")
-        return result_text
+        # Add job details to the response so LLM and cards use same data
+        for i, job in enumerate(normalized_jobs[:10], 1):
+            result_msg += f"{i}. **{job.get('job_title', 'Untitled')}**\n"
+            result_msg += f"   Company: {job.get('company', 'Company')}\n"
+            result_msg += f"   Location: {job.get('location', 'Location not specified')}\n"
+            if job.get('description'):
+                desc = job.get('description', '')[:100] + '...' if len(job.get('description', '')) > 100 else job.get('description', '')
+                result_msg += f"   Description: {desc}\n"
+            result_msg += "\n"
+        
+        print(f"✅ search_jobs completed successfully, found {len(all_jobs)} jobs, returning {display_limit} for display")
+        print(f"📋 Jobs stored in _current_jobs_data: {len(_current_jobs_data)} jobs")
+        return result_msg
         
     except requests.exceptions.RequestException as e:
         error_msg = f"API request failed: {str(e)}. Please check your internet connection and API configuration."
@@ -679,3 +727,16 @@ def get_user_profile(
     except Exception as e:
         return f"Error fetching user profile: {str(e)}"
 
+
+# Global variable to store current jobs data for agent access
+_current_jobs_data = None
+
+def get_current_jobs_data():
+    """Get the current jobs data for frontend display."""
+    global _current_jobs_data
+    return _current_jobs_data
+
+def clear_current_jobs_data():
+    """Clear the current jobs data."""
+    global _current_jobs_data
+    _current_jobs_data = None

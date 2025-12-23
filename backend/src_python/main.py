@@ -248,6 +248,17 @@ async def chat(request: ChatRequest, authorization: Optional[str] = Header(None)
             context=agent_context if agent_context else None,
             thread_id=thread_id
         )
+        
+        # Check for job data to send to frontend
+        jobs_data = agent.get_jobs_data()
+        if jobs_data:
+            print(f"📋 MAIN.PY: Found {len(jobs_data)} jobs to send to frontend")
+            for i, job in enumerate(jobs_data[:3]):
+                print(f"   Job {i+1}: {job.get('job_title', 'No title')} at {job.get('company', 'No company')}")
+            # Clear the data after getting it
+            agent.clear_jobs_data()
+        else:
+            print(f"📋 MAIN.PY: NO jobs data found to send to frontend")
 
         print(f"Response generated ({len(response_text)} characters) - Thread: {thread_id}")
 
@@ -497,3 +508,112 @@ if __name__ == "__main__":
     import uvicorn
     print(f"Starting Kozi AI server on http://localhost:{PORT}")
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
+# Streaming chat endpoint
+from fastapi.responses import StreamingResponse
+import json
+
+@app.post("/api/chat/stream")
+async def chat_stream(request: ChatRequest, authorization: Optional[str] = Header(None)):
+    """Streaming chat endpoint that can send job data to frontend."""
+    try:
+        if not request.message:
+            raise HTTPException(status_code=400, detail="Message is required")
+
+        # Get appropriate agent
+        agent = get_agent_for_role(request.role_type)
+        
+        # Get user ID first
+        users_id_to_use = request.users_id
+        if not users_id_to_use:
+            users_id_to_use = get_user_id_from_token(authorization, request.api_token)
+        
+        # Use provided thread_id or get user's active thread
+        thread_id = request.thread_id
+        if not thread_id and users_id_to_use:
+            thread_id = await user_thread_manager.get_thread_for_user(users_id_to_use, request.role_type or "employee")
+        
+        # Create new thread if none exists
+        if not thread_id:
+            if users_id_to_use:
+                metadata = {
+                    "role_type": request.role_type or "employee",
+                    "users_id": str(users_id_to_use)
+                }
+                thread_id = agent.create_thread(metadata)
+                await user_thread_manager.set_thread_for_user(users_id_to_use, thread_id, request.role_type or "employee")
+                print(f"Created new thread for user {users_id_to_use}: {thread_id}")
+            else:
+                raise HTTPException(status_code=400, detail="Unable to identify user for thread creation")
+
+        print(f"Streaming question received: {request.message[:100]}... (Thread: {thread_id}, Role: {request.role_type}, User: {users_id_to_use})")
+
+        # Extract API token from Authorization header if not in request body
+        api_token = request.api_token
+        if not api_token and authorization:
+            if authorization.startswith("Bearer "):
+                api_token = authorization[7:]
+
+        # Prepare context for agent
+        agent_context = {}
+        if users_id_to_use:
+            agent_context['users_id'] = users_id_to_use
+        if api_token:
+            agent_context['api_token'] = api_token
+
+        def generate_response():
+            try:
+                # Use thread-based conversation
+                response_text = agent.answer_question(
+                    request.message,
+                    context=agent_context if agent_context else None,
+                    thread_id=thread_id
+                )
+                
+                # Send the text response first
+                yield f"data: {json.dumps({'content': response_text})}\n\n"
+                
+                # Check for job data to send to frontend
+                jobs_data = agent.get_jobs_data()
+                if jobs_data:
+                    print(f"📋 Sending {len(jobs_data)} jobs to frontend")
+                    yield f"data: {json.dumps({'jobs': jobs_data})}\n\n"
+                    # Clear the data after sending
+                    agent.clear_jobs_data()
+                
+                # Send done signal
+                yield f"data: {json.dumps({'done': True})}\n\n"
+                
+            except Exception as e:
+                print(f"Error in streaming response: {e}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        return StreamingResponse(
+            generate_response(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Content-Type": "text/event-stream"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as error:
+        print(f"Error in /api/chat/stream: {error}")
+        raise HTTPException(status_code=500, detail=str(error))
+
+# Streaming chat endpoint for employers
+@app.post("/api/chat/employer/stream")
+async def chat_employer_stream(request: ChatRequest, authorization: Optional[str] = Header(None)):
+    """Streaming chat endpoint for employers."""
+    request.role_type = "employer"
+    return await chat_stream(request, authorization)
+
+# Streaming chat endpoint for admins
+@app.post("/api/chat/admin/stream")
+async def chat_admin_stream(request: ChatRequest, authorization: Optional[str] = Header(None)):
+    """Streaming chat endpoint for admins."""
+    request.role_type = "admin"
+    return await chat_stream(request, authorization)

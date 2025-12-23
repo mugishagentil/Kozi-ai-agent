@@ -237,13 +237,32 @@ class JobSeekerAgent(BaseAgent):
         elif is_job_query:
             # Extract category if mentioned
             category = None
-            for keyword in ['sales', 'marketing', 'it', 'developer', 'programmer', 'accountant', 
-                          'teacher', 'nurse', 'driver', 'engineer', 'designer', 'manager']:
-                if keyword in question_lower:
-                    category = keyword
-                    if keyword == 'it' or keyword == 'developer' or keyword == 'programmer' or keyword == 'engineer':
-                        category = 'IT'
-                    break
+            location = None
+            
+            # Check for IT/tech keywords first
+            if any(word in question_lower for word in ['it jobs', 'it job', 'developer', 'programmer', 'engineer', 'software']):
+                category = 'IT'
+            # Then check other categories
+            elif 'sales' in question_lower and 'job' in question_lower:
+                category = 'sales'
+            elif 'marketing' in question_lower and 'job' in question_lower:
+                category = 'marketing'
+            elif 'accountant' in question_lower:
+                category = 'accounting'
+            elif 'teacher' in question_lower:
+                category = 'education'
+            elif 'nurse' in question_lower:
+                category = 'healthcare'
+            elif 'driver' in question_lower:
+                category = 'transport'
+            elif 'designer' in question_lower:
+                category = 'design'
+            elif 'manager' in question_lower:
+                category = 'management'
+            
+            # Extract location if mentioned
+            if 'kigali' in question_lower:
+                location = 'Kigali'
             
             # Add explicit tool usage instruction - make it VERY clear
             tool_reminder = "\n\n[CRITICAL INSTRUCTION - YOU MUST FOLLOW THIS: The user is asking for jobs. "
@@ -254,9 +273,11 @@ class JobSeekerAgent(BaseAgent):
                 tool_reminder += "Call search_jobs tool with fetch_all=True. "
             tool_reminder += "DO NOT respond with text saying there's an issue. DO NOT apologize. "
             tool_reminder += "YOU MUST CALL THE TOOL. If the tool returns an error, show that error to the user. "
-            tool_reminder += "BUT YOU MUST CALL THE TOOL FIRST. This is not optional - it is REQUIRED.]"
+            tool_reminder += "BUT YOU MUST CALL THE TOOL FIRST. This is not optional - it is REQUIRED. "
+            tool_reminder += "EXAMPLE: search_jobs(query='marketing', category='marketing', fetch_all=True)]"
             question = question + tool_reminder
             print(f"🚨 Added job search reminder for category: {category}")
+            print(f"📝 Full question with reminder: {question[:200]}...")
         
         # Log the question we're sending
         print(f"📝 JobSeekerAgent processing: {question[:150]}...")
@@ -265,9 +286,22 @@ class JobSeekerAgent(BaseAgent):
         if is_cv_query:
             print(f"📄 Detected CV query - should call retrieve_knowledge_base tool")
         
+        # Clear any existing jobs data before new search
+        print(f"🧹 Clearing existing jobs data before new search")
+        self.clear_jobs_data()
+        
         # Let the LLM (through Agent Executor) handle everything
         # The system prompt guides the LLM on when to use tools
         result = super().answer_with_history(question, chat_history, context)
+        
+        # Log jobs data after processing
+        jobs_data = self.get_jobs_data()
+        if jobs_data:
+            print(f"📋 JOBS DATA FOUND: {len(jobs_data)} jobs")
+            for i, job in enumerate(jobs_data[:3]):
+                print(f"   Job {i+1}: {job.get('job_title', 'No title')} at {job.get('company', 'No company')}")
+        else:
+            print(f"📋 NO JOBS DATA FOUND after processing")
         
         # Check if result suggests tool wasn't called
         if is_job_query and ("issue" in result.lower() or "can't" in result.lower() or "unable" in result.lower() or "persistent issue" in result.lower()):

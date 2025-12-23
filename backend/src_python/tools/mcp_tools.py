@@ -77,6 +77,84 @@ def extract_user_id_from_input(input_text: str) -> Optional[int]:
     return None
 
 
+def suggest_job_categories(user_input: str) -> str:
+    """
+    Suggest relevant job categories based on user input.
+    
+    Args:
+        user_input: User's search input
+        
+    Returns:
+        Suggested categories or search terms
+    """
+    user_input_lower = user_input.lower()
+    
+    # Category suggestions based on keywords
+    suggestions = {
+        'sales': ['sell', 'customer', 'client', 'business', 'revenue'],
+        'marketing': ['market', 'brand', 'social media', 'advertising', 'promotion'],
+        'it': ['computer', 'software', 'tech', 'programming', 'coding', 'web', 'app'],
+        'finance': ['money', 'bank', 'accounting', 'financial', 'investment'],
+        'healthcare': ['health', 'medical', 'hospital', 'clinic', 'care'],
+        'education': ['teach', 'school', 'training', 'learning', 'academic'],
+        'construction': ['build', 'construction', 'engineer', 'architect'],
+        'hospitality': ['hotel', 'restaurant', 'tourism', 'service', 'food'],
+        'transport': ['drive', 'delivery', 'logistics', 'transport', 'shipping'],
+        'agriculture': ['farm', 'crop', 'agriculture', 'livestock', 'rural']
+    }
+    
+    matches = []
+    for category, keywords in suggestions.items():
+        if any(keyword in user_input_lower for keyword in keywords):
+            matches.append(category)
+    
+    if matches:
+        return f"Based on your search, you might be interested in: {', '.join(matches[:3])}"
+    else:
+        return "Try searching for categories like: sales, marketing, IT, finance, healthcare, education"
+
+
+
+def validate_search_query(query: str, category: str = None) -> tuple[bool, str]:
+    """
+    Validate search query to prevent nonsensical job searches.
+    
+    Args:
+        query: Search query string
+        category: Category string
+        
+    Returns:
+        Tuple of (is_valid, message)
+    """
+    if not query and not category:
+        return True, ""  # Allow empty searches to show all jobs
+    
+    # Define nonsensical patterns
+    nonsensical_patterns = [
+        r'^[^a-zA-Z0-9\s]+$',  # Only special characters
+        r'^\s*$',  # Only whitespace
+        r'^.{1,2}$',  # Too short (1-2 characters)
+        r'(.)\1{4,}',  # Repeated characters (aaaaa)
+        r'^\d+$',  # Only numbers
+    ]
+    
+    combined_text = f"{query} {category or ''}".strip().lower()
+    
+    # Check for nonsensical patterns
+    import re
+    for pattern in nonsensical_patterns:
+        if re.search(pattern, combined_text):
+            return False, "❌ Please provide a meaningful job search term (e.g., 'marketing', 'sales', 'IT jobs')."
+    
+    # Check for random gibberish (no vowels in long strings)
+    if len(combined_text) > 5:
+        vowels = 'aeiou'
+        if not any(v in combined_text for v in vowels):
+            return False, "❌ Please provide a valid job search term. Try categories like 'sales', 'marketing', 'IT', or 'healthcare'."
+    
+    return True, ""
+
+
 @tool
 def search_jobs(
     query: str = "",
@@ -90,7 +168,7 @@ def search_jobs(
     """
     **MANDATORY TOOL FOR JOB SEARCHES** - Use this tool whenever a user asks for jobs, mentions a job type, or wants to find employment.
     
-    Search for jobs on the Kozi platform with pagination support.
+    Search for jobs on the Kozi platform with intelligent filtering and validation.
     
     **WHEN TO USE THIS TOOL:**
     - User says "I need a job" or "find me a job" → Use this tool
@@ -103,7 +181,8 @@ def search_jobs(
     - Always set fetch_all=True to get all available jobs
     - If user says "any location", set location=None or omit it
     - If user mentions a category (sales, marketing, IT, etc.), set category parameter
-    - This tool returns formatted job listings with titles, companies, locations
+    - This tool validates categories and provides suggestions for invalid ones
+    - Enhanced filtering prevents showing irrelevant jobs
     
     Args:
         query: Search query/keywords (e.g., "marketing specialist")
@@ -120,6 +199,11 @@ def search_jobs(
     try:
         print(f"🔍 search_jobs called with: query='{query}', category='{category}', location='{location}', fetch_all={fetch_all}")
         print(f"🌐 Using JOBS_API_URL: {JOBS_API_URL}")
+        
+        # Validate search query first
+        is_valid, validation_msg = validate_search_query(query, category)
+        if not is_valid:
+            return validation_msg
         
         if not JOBS_API_URL:
             error_msg = "Jobs API is not configured. Please set JOBS_API_URL environment variable."
@@ -260,67 +344,117 @@ def search_jobs(
             }
             normalized_jobs.append(normalized_job)
         
-        # Filter jobs by category if specified (since API filtering may not work)
+        # Enhanced category filtering with validation
         if category and normalized_jobs:
-            category_lower = category.lower()
+            category_lower = category.lower().strip()
             filtered_jobs = []
+            
+            # Define valid categories and their keywords
+            valid_categories = {
+                'sales': ['sales', 'selling', 'marketing', 'business development', 'account manager'],
+                'marketing': ['marketing', 'digital marketing', 'social media', 'advertising', 'promotion', 'brand'],
+                'it': ['developer', 'programmer', 'software', 'tech', 'system', 'data', 'web', 'computer', 'coding', 'engineering'],
+                'finance': ['finance', 'accounting', 'financial', 'bank', 'investment', 'audit'],
+                'healthcare': ['health', 'medical', 'nurse', 'doctor', 'hospital', 'clinic'],
+                'education': ['teacher', 'education', 'training', 'instructor', 'academic'],
+                'construction': ['construction', 'building', 'engineer', 'architect', 'contractor'],
+                'hospitality': ['hotel', 'restaurant', 'tourism', 'hospitality', 'service'],
+                'transport': ['driver', 'transport', 'logistics', 'delivery', 'shipping'],
+                'agriculture': ['agriculture', 'farming', 'crop', 'livestock', 'agricultural']
+            }
+            
+            # Check if category is valid
+            category_keywords = None
+            for valid_cat, keywords in valid_categories.items():
+                if category_lower == valid_cat or category_lower in keywords:
+                    category_keywords = keywords
+                    break
+            
+            # If category is not recognized, suggest alternatives
+            if not category_keywords:
+                # Check for partial matches
+                suggestions = []
+                for valid_cat, keywords in valid_categories.items():
+                    if any(keyword in category_lower or category_lower in keyword for keyword in keywords):
+                        suggestions.append(valid_cat)
+                
+                if suggestions:
+                    return f"❌ We couldn't find jobs for '{category}'. Did you mean: {', '.join(suggestions[:3])}? Please try searching with one of these categories."
+                else:
+                    available_cats = ', '.join(valid_categories.keys())
+                    return f"❌ We couldn't find jobs for '{category}'. Available job categories include: {available_cats}. Please try searching with a valid category."
+            
+            # Filter jobs using enhanced matching
             for job in normalized_jobs:
                 job_title = (job.get('job_title') or '').lower()
                 job_category = (job.get('category') or '').lower()
-                job_description = (job.get('description') or '').lower()
+                job_description = (job.get('description') or '').lower()[:200]  # Limit description length
                 
-                # Check if job matches the requested category
-                if (category_lower in job_title or 
-                    category_lower in job_category or 
-                    category_lower in job_description or
-                    (category_lower == 'it' and any(tech_word in job_title for tech_word in ['developer', 'programmer', 'software', 'tech', 'system', 'data', 'web']))):
+                # Check if job matches any category keywords
+                match_found = False
+                for keyword in category_keywords:
+                    if (keyword in job_title or 
+                        keyword in job_category or 
+                        keyword in job_description):
+                        match_found = True
+                        break
+                
+                if match_found:
                     filtered_jobs.append(job)
             
             if filtered_jobs:
                 normalized_jobs = filtered_jobs
                 print(f"🔍 Filtered to {len(normalized_jobs)} jobs matching category '{category}'")
             else:
-                print(f"⚠️  No jobs found matching category '{category}', showing all results")
+                return f"❌ No jobs found in '{category}' category. Try searching for jobs in other categories like: {', '.join(list(valid_categories.keys())[:5])}."
         
-        # Store jobs for frontend display (this will be picked up by the agent)
-        import json
-        jobs_json = json.dumps(normalized_jobs[:20])  # Limit to 20 jobs for display
+        # Store jobs for frontend display with thread memory
+        jobs_for_display = normalized_jobs[:10]
         
-        # Clear any existing jobs data before new search
-        global _current_jobs_data
-        print(f"🧹 CLEARING jobs data - before: {len(_current_jobs_data) if _current_jobs_data else 0} jobs")
-        clear_current_jobs_data()
+        # Store in thread-specific memory
+        search_params = {
+            'query': query,
+            'category': category,
+            'location': location
+        }
+        store_jobs_for_thread(jobs_for_display, search_params)
         
-        # Set a flag to indicate jobs should be displayed as cards
-        # This will be used by the agent to send job data to frontend
-        _current_jobs_data = normalized_jobs[:20]
-        print(f"📋 STORING {len(_current_jobs_data)} jobs for display")
-        print(f"   First job: {_current_jobs_data[0].get('job_title', 'No title')} at {_current_jobs_data[0].get('company', 'No company')}")
-        print(f"   All job titles: {[job.get('job_title', 'No title') for job in _current_jobs_data[:5]]}")
+        print(f"📋 STORED {len(jobs_for_display)} jobs for thread {get_thread_id()}")
         
         # CRITICAL: Also store in agent instance for immediate access
         import os
         os.environ['JOBS_DATA_AVAILABLE'] = 'true'
         
-        # Return a user-friendly message WITH the actual job data for LLM to use
-        display_limit = min(len(all_jobs), 20)
-        result_msg = f"Found {len(all_jobs)} job(s)"
-        if len(all_jobs) > display_limit:
-            result_msg += f", showing top {display_limit}"
-        result_msg += ". Here are the available positions:\n\n"
+        # Enhanced result formatting with better filtering
+        display_limit = min(len(normalized_jobs), 10)  # Limit to 10 for better UX
         
-        # Add job details to the response so LLM and cards use same data
-        for i, job in enumerate(normalized_jobs[:10], 1):
+        if len(normalized_jobs) == 0:
+            return "❌ No jobs found matching your criteria. Try adjusting your search terms or category."
+        
+        result_msg = f"✅ Found {len(normalized_jobs)} relevant job(s)"
+        if category:
+            result_msg += f" in {category}"
+        if location:
+            result_msg += f" in {location}"
+        result_msg += ". Here are the top matches:\n\n"
+        
+        # Add job details with enhanced formatting
+        for i, job in enumerate(normalized_jobs[:display_limit], 1):
             result_msg += f"{i}. **{job.get('job_title', 'Untitled')}**\n"
-            result_msg += f"   Company: {job.get('company', 'Company')}\n"
-            result_msg += f"   Location: {job.get('location', 'Location not specified')}\n"
+            result_msg += f"   🏢 Company: {job.get('company', 'Company')}\n"
+            result_msg += f"   📍 Location: {job.get('location', 'Location not specified')}\n"
+            if job.get('employment_type'):
+                result_msg += f"   💼 Type: {job.get('employment_type')}\n"
             if job.get('description'):
-                desc = job.get('description', '')[:100] + '...' if len(job.get('description', '')) > 100 else job.get('description', '')
-                result_msg += f"   Description: {desc}\n"
+                desc = job.get('description', '')[:80] + '...' if len(job.get('description', '')) > 80 else job.get('description', '')
+                result_msg += f"   📝 {desc}\n"
             result_msg += "\n"
         
-        print(f"✅ search_jobs completed successfully, found {len(all_jobs)} jobs, returning {display_limit} for display")
-        print(f"📋 Jobs stored in _current_jobs_data: {len(_current_jobs_data)} jobs")
+        if len(normalized_jobs) > display_limit:
+            result_msg += f"... and {len(normalized_jobs) - display_limit} more jobs available.\n"
+        
+        print(f"✅ search_jobs completed successfully, found {len(normalized_jobs)} jobs, displaying {display_limit} jobs")
+        print(f"📋 Jobs stored for thread {get_thread_id()}: {len(get_jobs_for_thread())} jobs")
         return result_msg
         
     except requests.exceptions.RequestException as e:
@@ -548,9 +682,13 @@ def find_matching_jobs_for_user(
             except:
                 pass
         
-        # Search for jobs matching user profile
-        # Use fetch_all=True to get all jobs and find best matches
+        # Search for jobs matching user profile with enhanced filtering
         search_query = " ".join(skills[:3]) if skills else ""  # Use top 3 skills as query
+        
+        # Validate the search before proceeding
+        is_valid, validation_msg = validate_search_query(search_query, category_preference)
+        if not is_valid:
+            return f"Profile-based search validation failed: {validation_msg}"
         
         result = search_jobs(
             query=search_query,
@@ -728,15 +866,96 @@ def get_user_profile(
         return f"Error fetching user profile: {str(e)}"
 
 
-# Global variable to store current jobs data for agent access
+@tool
+def handle_unclear_job_request(
+    user_input: str,
+    api_token: Optional[str] = None
+) -> str:
+    """
+    Handle unclear, nonsensical, or invalid job search requests.
+    
+    Use this tool when:
+    - User provides gibberish or nonsensical input for job search
+    - User types random characters or very short meaningless text
+    - User asks for jobs but the request is unclear
+    - You need to guide user to provide better search terms
+    
+    Args:
+        user_input: The unclear or nonsensical user input
+        api_token: API authentication token (optional)
+        
+    Returns:
+        Helpful guidance and suggestions for better job search
+    """
+    try:
+        # Analyze the input and provide helpful suggestions
+        suggestions = suggest_job_categories(user_input)
+        
+        response = [
+            "❌ I couldn't understand your job search request.",
+            "",
+            "💡 **Here's how to search for jobs effectively:**",
+            "• Use specific job categories: 'sales jobs', 'marketing positions', 'IT roles'",
+            "• Mention your skills: 'graphic design', 'customer service', 'programming'",
+            "• Include location if needed: 'jobs in Kigali', 'remote work'",
+            "",
+            f"🎯 **Suggestions:** {suggestions}",
+            "",
+            "🔍 **Popular job categories:**",
+            "• Sales & Marketing",
+            "• Information Technology (IT)",
+            "• Healthcare & Medical",
+            "• Finance & Accounting",
+            "• Education & Training",
+            "• Construction & Engineering",
+            "",
+            "Please try again with a clearer search term! 😊"
+        ]
+        
+        return "\n".join(response)
+        
+    except Exception as e:
+        return f"I couldn't process your request. Please try searching for jobs using clear terms like 'sales', 'marketing', or 'IT jobs'. Error: {str(e)}"
+
+
+
+# Global variables for thread-based memory
 _current_jobs_data = None
+_thread_memory = {}  # Store data per thread/conversation
+
+def get_thread_id() -> str:
+    """Get current thread ID from environment or generate one."""
+    import threading
+    return str(threading.current_thread().ident)
+
+def store_jobs_for_thread(jobs_data, search_params=None):
+    """Store jobs data for current thread."""
+    global _thread_memory, _current_jobs_data
+    thread_id = get_thread_id()
+    
+    if thread_id not in _thread_memory:
+        _thread_memory[thread_id] = {}
+    
+    _thread_memory[thread_id]['jobs'] = jobs_data
+    _thread_memory[thread_id]['search_params'] = search_params or {}
+    _thread_memory[thread_id]['timestamp'] = __import__('time').time()
+    
+    # Also set global for backward compatibility
+    _current_jobs_data = jobs_data
+
+def get_jobs_for_thread():
+    """Get jobs data for current thread."""
+    thread_id = get_thread_id()
+    return _thread_memory.get(thread_id, {}).get('jobs', [])
 
 def get_current_jobs_data():
     """Get the current jobs data for frontend display."""
-    global _current_jobs_data
-    return _current_jobs_data
+    return get_jobs_for_thread() or _current_jobs_data
 
 def clear_current_jobs_data():
-    """Clear the current jobs data."""
+    """Clear jobs data for current thread only."""
     global _current_jobs_data
+    thread_id = get_thread_id()
+    if thread_id in _thread_memory:
+        _thread_memory[thread_id].pop('jobs', None)
     _current_jobs_data = None

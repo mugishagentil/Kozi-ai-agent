@@ -919,43 +919,37 @@ def handle_unclear_job_request(
 
 
 
-# Global variables for thread-based memory
+# Global variables for external thread-based memory
 _current_jobs_data = None
-_thread_memory = {}  # Store data per thread/conversation
+_thread_conversations = {}  # Store conversations by external thread ID
 
-def get_thread_id() -> str:
-    """Get current thread ID from environment or generate one."""
-    import threading
-    return str(threading.current_thread().ident)
+def get_or_create_thread_id(provided_thread_id=None):
+    """Get existing thread ID or create new one."""
+    if provided_thread_id:
+        return provided_thread_id
+    import uuid
+    return str(uuid.uuid4())[:8]
 
-def store_jobs_for_thread(jobs_data, search_params=None):
-    """Store jobs data for current thread."""
-    global _thread_memory, _current_jobs_data
-    thread_id = get_thread_id()
-    
-    if thread_id not in _thread_memory:
-        _thread_memory[thread_id] = {}
-    
-    _thread_memory[thread_id]['jobs'] = jobs_data
-    _thread_memory[thread_id]['search_params'] = search_params or {}
-    _thread_memory[thread_id]['timestamp'] = __import__('time').time()
-    
-    # Also set global for backward compatibility
-    _current_jobs_data = jobs_data
+def store_conversation_data(thread_id, data_type, data):
+    """Store data for specific thread conversation."""
+    global _thread_conversations, _current_jobs_data
+    if thread_id not in _thread_conversations:
+        _thread_conversations[thread_id] = {'created': __import__('time').time(), 'jobs': [], 'history': []}
+    _thread_conversations[thread_id][data_type] = data
+    _thread_conversations[thread_id]['updated'] = __import__('time').time()
+    if data_type == 'jobs':
+        _current_jobs_data = data
 
-def get_jobs_for_thread():
-    """Get jobs data for current thread."""
-    thread_id = get_thread_id()
-    return _thread_memory.get(thread_id, {}).get('jobs', [])
+def get_conversation_data(thread_id, data_type):
+    """Get data for specific thread conversation."""
+    return _thread_conversations.get(thread_id, {}).get(data_type, [])
 
 def get_current_jobs_data():
     """Get the current jobs data for frontend display."""
-    return get_jobs_for_thread() or _current_jobs_data
+    global _current_jobs_data
+    return _current_jobs_data
 
 def clear_current_jobs_data():
-    """Clear jobs data for current thread only."""
+    """Clear the current jobs data."""
     global _current_jobs_data
-    thread_id = get_thread_id()
-    if thread_id in _thread_memory:
-        _thread_memory[thread_id].pop('jobs', None)
     _current_jobs_data = None

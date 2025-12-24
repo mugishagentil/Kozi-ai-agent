@@ -249,6 +249,56 @@ def clear_stored_jobs_data():
     os.environ.pop('JOBS_DATA_AVAILABLE', None)
 
 
+def generate_detailed_job_text(jobs_data: List[Dict], search_context: str = "") -> str:
+    """
+    Generate clean job listing text matching the UI style.
+    
+    Args:
+        jobs_data: List of job dictionaries
+        search_context: Context about the search (category, location, etc.)
+        
+    Returns:
+        Formatted job listing text matching the UI design
+    """
+    if not jobs_data:
+        return "No jobs found matching your criteria."
+    
+    # Header matching the UI style
+    html = f"<div style='margin-bottom: 1rem;'><strong>Here are some{search_context} job opportunities available for you</strong></div>\n"
+    
+    for i, job in enumerate(jobs_data, 1):
+        # Job title with number (pink color like in image)
+        html += f"<div style='margin-bottom: 1rem;'>\n"
+        html += f"<div style='color: #EA60A6; font-weight: 600; margin-bottom: 0.5rem;'>{i}. {job.get('job_title', 'Job Title')}</div>\n"
+        
+        # Company with bullet point
+        html += f"<div style='margin-left: 1rem; margin-bottom: 0.25rem;'>\n"
+        html += f"<span style='color: #EA60A6; margin-right: 0.5rem;'>•</span>"
+        html += f"<strong>Company:</strong> {job.get('company', 'Company Name')}\n"
+        html += f"</div>\n"
+        
+        # Type with bullet point (instead of location)
+        if job.get('employment_type'):
+            html += f"<div style='margin-left: 1rem; margin-bottom: 0.25rem;'>\n"
+            html += f"<span style='color: #EA60A6; margin-right: 0.5rem;'>•</span>"
+            html += f"<strong>Type:</strong> {job['employment_type']}\n"
+            html += f"</div>\n"
+        
+        # Salary if available
+        if job.get('salary_min') and job.get('salary_max') and job['salary_min'] != 1 and job['salary_max'] != 1:
+            html += f"<div style='margin-left: 1rem; margin-bottom: 0.25rem;'>\n"
+            html += f"<span style='color: #EA60A6; margin-right: 0.5rem;'>•</span>"
+            if job['salary_min'] == job['salary_max']:
+                html += f"<strong>Salary:</strong> {job['salary_min']:,} RWF\n"
+            else:
+                html += f"<strong>Salary:</strong> {job['salary_min']:,} - {job['salary_max']:,} RWF\n"
+            html += f"</div>\n"
+        
+        html += f"</div>\n"  # Close job container
+    
+    return html
+
+
 # Global variable to store jobs data for frontend
 _current_jobs_data = None
 
@@ -566,25 +616,33 @@ def search_jobs(
             _current_jobs_data = None
             return "❌ No jobs found matching your criteria. Try adjusting your search terms or category."
         
-        # Store jobs for frontend display as cards
+        # Store jobs for frontend display as cards AND include in response
         _current_jobs_data = limited_jobs
         
         print(f"📋 STORED {len(limited_jobs)} jobs for display as cards")
         print(f"📋 First job stored: {limited_jobs[0].get('job_title', 'No title') if limited_jobs else 'None'}")
         
-        # CRITICAL: Also store in agent instance for immediate access
+        # CRITICAL: Store jobs globally AND in environment for streaming response
         os.environ['JOBS_DATA_AVAILABLE'] = 'true'
+        os.environ['CURRENT_JOBS_JSON'] = __import__('json').dumps(limited_jobs)
         
-        # Return descriptive text only
-        result_msg = f"I found {len(limited_jobs)} great job opportunities"
+        # Generate context for detailed text
+        search_context = ""
         if category:
-            result_msg += f" in {category}"
+            search_context += f" in {category}"
         if location:
-            result_msg += f" in {location}"
-        result_msg += " that match your search criteria."
+            search_context += f" in {location}"
+        
+        # Generate detailed job text for thread storage
+        detailed_text = generate_detailed_job_text(limited_jobs, search_context)
+        os.environ['THREAD_JOBS_TEXT'] = detailed_text
+        
+        # Return short descriptive text for immediate response
+        result_msg = f"I found {len(limited_jobs)} great job opportunities{search_context} that match your search criteria."
         
         print(f"🔍 SEARCH_JOBS TOOL RETURNING: '{result_msg}'")
         print(f"📋 Jobs stored: {len(_current_jobs_data)} jobs for frontend cards")
+        print(f"📝 Detailed text stored for thread: {len(detailed_text)} characters")
         return result_msg
         
     except requests.exceptions.RequestException as e:
@@ -820,7 +878,7 @@ def find_matching_jobs_for_user(
         if not is_valid:
             return f"Profile-based search validation failed: {validation_msg}"
         
-        # Also update find_matching_jobs_for_user to use the same 6-job limit
+        # Call search_jobs tool to get jobs and generate both texts
         result = search_jobs.invoke({
             "query": search_query,
             "category": category_preference,
@@ -830,14 +888,8 @@ def find_matching_jobs_for_user(
             "api_token": token
         })
         
-        # Add context about what was matched - descriptive but concise
-        result_msg = f"I found {len(limited_jobs)} personalized job opportunities"
-        if category_preference:
-            result_msg += f" in {category_preference}"
-        result_msg += " based on your profile and preferences."
-        
-        print(f"🔍 FIND_MATCHING_JOBS TOOL RETURNING: '{result_msg}'")
-        return result_msg
+        # The search_jobs tool already handles the dual-text logic
+        return result
         
     except Exception as e:
         return f"Error finding matching jobs: {str(e)}"

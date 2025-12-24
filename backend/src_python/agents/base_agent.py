@@ -223,8 +223,8 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
                 try:
                     # Add user message to thread
                     self.thread_manager.add_message(thread_id, question, "user")
-                    # Add assistant response to thread
-                    self.thread_manager.add_message(thread_id, output, "assistant")
+                    # Add assistant response to thread with jobs data if available
+                    self.thread_manager.add_message(thread_id, output, "assistant", jobs_data)
                     save_time = time.time() - save_start
                     print(f"💾 Saved to thread ({save_time:.2f}s)")
                 except Exception as e:
@@ -338,15 +338,18 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
             # Check for job data after tool execution
             jobs_data = self._check_for_jobs_data()
             
-            # Log intermediate steps to see if tools were called (disabled for performance)
-            # if 'intermediate_steps' in result:
-            #     print(f"🔧 Intermediate steps: {len(result['intermediate_steps'])}")
-            #     for step in result['intermediate_steps']:
-            #         print(f"   Step: {step}")
-            
             # Check if agent stopped due to max iterations
             output = result.get("output", "")
-            if "Agent stopped due to max iterations" in output or "max iterations" in output.lower():
+            
+            # Handle tool responses that return dict with message and jobs
+            if isinstance(output, dict) and "message" in output:
+                if "jobs" in output:
+                    self._current_jobs_data = output["jobs"]
+                    jobs_data = output["jobs"]
+                    print(f"📋 Extracted {len(jobs_data)} jobs from tool response")
+                output = output["message"]
+            
+            if "Agent stopped due to max iterations" in str(output) or "max iterations" in str(output).lower():
                 # Return a helpful message that encourages the user to provide more specific info
                 return "I want to help you find the perfect job! Could you provide a bit more detail? For example:\n- What type of job are you looking for? (e.g., marketing, IT, sales)\n- What's your preferred location? (e.g., Kigali, remote)\n\nOnce I have this information, I'll search for matching jobs right away!"
             
@@ -360,8 +363,8 @@ Your role is to answer questions about jobs, hiring, the platform's services, an
                 try:
                     # Add user message to thread
                     self.thread_manager.add_message(thread_id, question, "user")
-                    # Add assistant response to thread
-                    self.thread_manager.add_message(thread_id, output, "assistant")
+                    # Add assistant response to thread with jobs data if available
+                    self.thread_manager.add_message(thread_id, output, "assistant", jobs_data)
                 except Exception as e:
                     print(f"⚠️  Error saving to thread: {e}")
             

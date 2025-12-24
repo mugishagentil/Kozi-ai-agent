@@ -8,6 +8,10 @@ import os
 from typing import Optional, Dict, Any, List
 from openai import OpenAI
 import json
+from datetime import datetime
+
+# In-memory storage for jobs data (keyed by thread_id)
+_thread_jobs_storage = {}
 
 
 class ThreadManager:
@@ -43,13 +47,36 @@ class ThreadManager:
             print(f"⚠️  Error retrieving thread {thread_id}: {e}")
             return None
     
-    def add_message(self, thread_id: str, content: str, role: str = "user") -> str:
-        """Add a message to a thread."""
+    def add_message(self, thread_id: str, content: str, role: str = "user", jobs_data: Optional[List[Dict]] = None) -> str:
+        """Add a message to a thread with optional jobs data."""
         try:
+            metadata = {
+                "timestamp": datetime.now().isoformat(),
+                "has_jobs": "true" if jobs_data else "false"
+            }
+            
+            if jobs_data:
+                print(f"📋 Storing {len(jobs_data)} jobs with message in thread {thread_id}")
+                
+                # Store in memory for immediate access (cards during session)
+                if thread_id not in _thread_jobs_storage:
+                    _thread_jobs_storage[thread_id] = []
+                _thread_jobs_storage[thread_id].append({
+                    "timestamp": datetime.now().isoformat(),
+                    "jobs_data": jobs_data
+                })
+                
+                # Use detailed text for thread persistence instead of short text
+                thread_content = os.environ.get('THREAD_JOBS_TEXT', content)
+                print(f"📋 Using detailed text for thread: {thread_content[:100]}...")
+            else:
+                thread_content = content
+            
             message = self.client.beta.threads.messages.create(
                 thread_id=thread_id,
                 role=role,
-                content=content
+                content=thread_content,  # Use detailed text for thread
+                metadata=metadata
             )
             print(f"✅ Added message to thread {thread_id}")
             return message.id
@@ -58,15 +85,20 @@ class ThreadManager:
             raise
     
     def get_messages(self, thread_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get messages from a thread."""
+        """Get messages from a thread with jobs data."""
         try:
             messages = self.client.beta.threads.messages.list(
                 thread_id=thread_id,
-                limit=limit,  # Return all messages (up to 100)
-                order="asc"  # Get oldest first for proper chronological order
+                limit=limit,
+                order="asc"
             )
             
+            # Get stored jobs data for this thread (for cards)
+            thread_jobs = _thread_jobs_storage.get(thread_id, [])
+            
             formatted_messages = []
+            jobs_index = 0
+            
             for msg in messages.data:
                 content = ""
                 if msg.content and len(msg.content) > 0:
@@ -75,12 +107,22 @@ class ThreadManager:
                     else:
                         content = str(msg.content[0])
                 
-                formatted_messages.append({
+                message_data = {
                     "id": msg.id,
                     "role": msg.role,
-                    "content": content,
+                    "content": content,  # Content includes job listings as text
                     "created_at": msg.created_at
-                })
+                }
+                
+                # Add jobs data for cards if available in memory
+                if (msg.metadata and msg.metadata.get("has_jobs") == "true" and 
+                    jobs_index < len(thread_jobs)):
+                    jobs_data = thread_jobs[jobs_index]["jobs_data"]
+                    message_data["jobs"] = jobs_data
+                    print(f"📋 Retrieved {len(jobs_data)} jobs from memory for cards")
+                    jobs_index += 1
+                
+                formatted_messages.append(message_data)
             
             return formatted_messages
         except Exception as e:

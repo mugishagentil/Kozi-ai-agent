@@ -397,14 +397,17 @@ async def get_thread_chat(thread_id: str, role_type: str = "employee"):
         if not thread_messages:
             raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
         
-        formatted_messages = [
-            {
+        formatted_messages = []
+        for msg in thread_messages:
+            message_data = {
                 "role": msg["role"],
                 "content": msg["content"],
                 "timestamp": msg.get("created_at")
             }
-            for msg in thread_messages
-        ]
+            # Include jobs data if present
+            if "jobs" in msg:
+                message_data["jobs"] = msg["jobs"]
+            formatted_messages.append(message_data)
         
         return {
             "chat": {

@@ -10,6 +10,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from typing import List, Optional, Dict, Any
@@ -511,15 +512,7 @@ async def get_admin_chat_sessions(users_id: int, authorization: Optional[str] = 
     """Get admin's chat sessions."""
     return await get_chat_sessions(users_id, "admin", authorization)
 
-if __name__ == "__main__":
-    import uvicorn
-    print(f"Starting Kozi AI server on http://localhost:{PORT}")
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
-
 # Streaming chat endpoint
-from fastapi.responses import StreamingResponse
-import json
-
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest, authorization: Optional[str] = Header(None)):
     """Streaming chat endpoint that can send job data to frontend."""
@@ -628,3 +621,8 @@ async def chat_admin_stream(request: ChatRequest, authorization: Optional[str] =
     """Streaming chat endpoint for admins."""
     request.role_type = "admin"
     return await chat_stream(request, authorization)
+
+if __name__ == "__main__":
+    import uvicorn
+    print(f"Starting Kozi AI server on http://localhost:{PORT}")
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

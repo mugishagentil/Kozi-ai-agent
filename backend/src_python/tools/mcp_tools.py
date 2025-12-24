@@ -475,13 +475,16 @@ def search_jobs(
         # Normalize job data for frontend display
         normalized_jobs = []
         for job in all_jobs:
+            # Debug: Print job data to see what fields are available
+            print(f"🔍 Raw job data: {job}")
+            
             normalized_job = {
-                'job_id': job.get('id') or job.get('job_id'),
-                'job_title': job.get('title') or job.get('job_title') or 'Untitled',
+                'job_id': job.get('job_id') or job.get('id'),
+                'job_title': job.get('job_title') or job.get('title') or 'Untitled',
                 'company': job.get('company') or job.get('company_name') or 'Company',
-                'location': job.get('location') or job.get('job_location'),
-                'description': job.get('description'),
-                'employment_type': job.get('employment_type') or job.get('type') or 'Full Time',
+                'location': None,  # API location field contains wrong data (employment type)
+                'description': job.get('job_description') or job.get('description'),
+                'employment_type': job.get('location') if job.get('location') in ['Full Time', 'Part Time', 'Contract', 'Temporary', 'Freelance'] else None,
                 'salary_min': job.get('salary_min') or job.get('min_salary'),
                 'salary_max': job.get('salary_max') or job.get('max_salary'),
                 'deadline': job.get('deadline') or job.get('application_deadline'),
@@ -489,6 +492,10 @@ def search_jobs(
                 'category': job.get('category') or job.get('category_name'),
                 'created_at': job.get('created_at') or job.get('posted_date')
             }
+            
+            # Debug: Print normalized job to see what we got
+            print(f"📋 Normalized job: location='{normalized_job['location']}', employment_type='{normalized_job['employment_type']}'")
+            
             normalized_jobs.append(normalized_job)
         
         # Enhanced filtering for both category and query-based searches

@@ -29,7 +29,7 @@
         </div>
         
         <div class="detail-item" v-if="job.salary_min && job.salary_max && job.salary_min !== 1 && job.salary_max !== 1">
-          <i class="fas fa-dollar-sign"></i>
+          <i class="fas fa-wallet"></i>
           <span>{{ formatSalary(job.salary_min, job.salary_max) }}</span>
         </div>
         

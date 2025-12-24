@@ -100,7 +100,7 @@ export function useKoziChat() {
     // Check if user is admin
     if (isAdmin) {
       console.log('🔍 Admin user detected, using admin API')
-      return '/admin/chat'
+      return '/chat/admin'
     }
     
     // Employee uses /chat, Employer uses /chat/employer
@@ -530,11 +530,7 @@ const initializeUser = async () => {
             console.log('✅ Received title from backend:', data.data.title)
           }
           
-          // Dispatch event immediately after session creation so sidebar can load history
-          console.log('📢 Dispatching chatHistoryUpdated event after session creation')
-          window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
-            detail: { sessionId: data.data.session_id }
-          }))
+          // Session created - sidebar will update on next message
         } else {
           throw new Error('Failed to start session')
         }
@@ -664,30 +660,9 @@ const initializeUser = async () => {
         console.error('❌ Invalid botMessageIndex after streaming:', botMessageIndex, 'messages.length:', messages.value.length)
       }
       
-      // Save to history after message completes (ensures persistence)
+      // Save to history after message completes
       if (currentSession.value && messages.value.length > 0) {
         saveCurrentChatToHistory()
-        
-        // Reload history from backend to get updated title and ensure sidebar syncs
-        // Also dispatch event to notify sidebars to reload
-        if (currentUser.value) {
-          // Dispatch event immediately first (sidebar can load in background)
-          console.log('📢 Dispatching chatHistoryUpdated event after message completion')
-          window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
-            detail: { sessionId: currentSession.value }
-          }))
-          
-          // Then reload from backend after a short delay
-          setTimeout(async () => {
-            console.log('🔄 Reloading history from backend after message')
-            await loadHistoryFromBackend()
-            
-            // Dispatch event again after backend sync to ensure sidebar has latest data
-            window.dispatchEvent(new CustomEvent('chatHistoryUpdated', {
-              detail: { sessionId: currentSession.value }
-            }))
-          }, 1500)
-        }
       }
 
     } catch (e) {
@@ -759,7 +734,10 @@ const initializeUser = async () => {
   }
 
   const loadChatHistory = async (historyItem) => {
-    if (!historyItem.sessionId) return
+    if (!historyItem.sessionId || historyItem.sessionId === 'undefined') {
+      console.warn('⚠️ Cannot load history: invalid sessionId', historyItem.sessionId)
+      return
+    }
 
     console.log('Loading chat history for session:', historyItem.sessionId)
     
@@ -774,8 +752,8 @@ const initializeUser = async () => {
 
       let loadedMessages = []
       
-      if (data?.data?.messages && Array.isArray(data.data.messages)) {
-        loadedMessages = data.data.messages
+      if (data?.chat?.messages && Array.isArray(data.chat.messages)) {
+        loadedMessages = data.chat.messages
       } else if (data?.messages && Array.isArray(data.messages)) {
         loadedMessages = data.messages
       } else if (Array.isArray(data)) {
@@ -784,8 +762,8 @@ const initializeUser = async () => {
 
       if (loadedMessages.length > 0) {
         const msgs = loadedMessages.map((m) => ({
-          sender: m.type === 'user' ? 'user' : 'assistant',
-          text: m.type === 'user' ? m.content : formatMessage(m.content || m.message || ''),
+          sender: m.role === 'user' ? 'user' : 'assistant',
+          text: m.role === 'user' ? m.content : formatMessage(m.content || ''),
         }))
         
         console.log('Processed messages:', msgs)
@@ -920,7 +898,7 @@ const initializeUser = async () => {
                                   Date.now()
           
           return {
-            sessionId: session.id,
+            sessionId: session.thread_id || session.sessionId,
             title: session.title || 'New Chat',
             date: new Date(sessionTimestamp).toLocaleDateString('en-US', {
               month: 'short',
@@ -929,7 +907,7 @@ const initializeUser = async () => {
               minute: '2-digit',
             }),
             timestamp: sessionTimestamp,
-            messageCount: session.messages ? session.messages.length : 0,
+            messageCount: session.messageCount || (session.messages ? session.messages.length : 0),
             lastMessage: cleanLastMessage.substring(0, 100),
             createdAt: new Date(sessionTimestamp)
           }
@@ -1462,6 +1440,38 @@ async function getUserFromLocalStorage() {
   }
 }
 
+// Check if JWT token is expired
+function isTokenExpired(token) {
+  if (!token) return true;
+  
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    
+    const payload = JSON.parse(atob(parts[1]));
+    const exp = payload.exp;
+    
+    if (!exp) return true;
+    
+    // Check if token expires in next 5 minutes (buffer)
+    const now = Math.floor(Date.now() / 1000);
+    const isExpired = exp < (now + 300);
+    
+    if (isExpired) {
+      console.warn('⚠️ Token expired or expiring soon:', {
+        expiresAt: new Date(exp * 1000).toISOString(),
+        now: new Date(now * 1000).toISOString(),
+        timeLeft: exp - now + ' seconds'
+      });
+    }
+    
+    return isExpired;
+  } catch (error) {
+    console.error('Error checking token expiration:', error);
+    return true;
+  }
+}
+
 // Helper function to get auth headers
 // FIXED: Update getAuthHeaders to check all token types
 function getAuthHeaders() {
@@ -1472,6 +1482,19 @@ function getAuthHeaders() {
   const agentToken = localStorage.getItem('agentToken');
   
   const token = employeeToken || employerToken || adminToken || agentToken;
+  
+  // Check if token is expired
+  if (token && isTokenExpired(token)) {
+    console.error('❌ Token has expired. Redirecting to login...');
+    // Clear expired tokens
+    localStorage.removeItem('employeeToken');
+    localStorage.removeItem('employerToken');
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('agentToken');
+    // Redirect to login
+    window.location.href = '/login';
+    throw new Error('Your session has expired. Please log in again.');
+  }
   
   const headers = {
     'Content-Type': 'application/json'
@@ -1552,13 +1575,13 @@ async function startSession(users_id, firstMessage, rolePrefix = '/chat') {
 
 // 🚀 Streaming message function
 async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk, onJobs, onCandidates, onTitle, rolePrefix = '/chat') {
-  const url = `${API_BASE}${rolePrefix}`
-  console.log('🚀 AI Chat calling:', url, 'with API_BASE:', API_BASE)
+  const url = `${API_BASE}${rolePrefix}/stream`
+  console.log('🚀 AI Chat calling streaming endpoint:', url, 'with API_BASE:', API_BASE)
   const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({ 
-      sessionId, 
+      thread_id: sessionId,  // Backend expects thread_id, not sessionId
       message, 
       isFirstUserMessage
     }),
@@ -1709,6 +1732,7 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
         if (event.content) {
           onChunk(event.content, null)
         } else if (event.jobs) {
+          console.log('📋 Received jobs data:', event.jobs.length, 'jobs')
           onJobs(event.jobs)
         } else if (event.candidates) {
           onCandidates(event.candidates)
@@ -1726,13 +1750,12 @@ async function streamChatMessage(sessionId, message, isFirstUserMessage, onChunk
   }
 }
 async function getChatHistory(sessionId, rolePrefix = '/chat') {
-  const url = `${API_BASE}${rolePrefix}?action=loadPreviousSession`
-  console.log('Fetching chat history from:', url, 'with sessionId:', sessionId)
+  const url = `${API_BASE}${rolePrefix}/thread/${sessionId}`
+  console.log('Fetching chat history from:', url)
   
   const res = await fetchWithTimeout(url, {
-    method: 'POST',
+    method: 'GET',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ sessionId }),
     timeout: 10000
   })
   

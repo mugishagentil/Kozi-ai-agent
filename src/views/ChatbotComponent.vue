@@ -111,7 +111,7 @@ export default {
         console.log('🔄 Route sessionId changed:', { oldSessionId, sessionId, path: route.path, fullPath: route.fullPath })
         
         // If we have a sessionId in the URL, load that chat
-        if (sessionId) {
+        if (sessionId && sessionId !== 'undefined') {
           console.log('📂 Loading chat from URL sessionId:', sessionId)
           isNewChat.value = false
           

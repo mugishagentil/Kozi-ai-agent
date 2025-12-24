@@ -539,7 +539,7 @@ export default {
           if (data.sessions && Array.isArray(data.sessions)) {
             console.log(`✅ Admin Sidebar: Found ${data.sessions.length} chat sessions`);
             const mappedSessions = data.sessions.map(session => ({
-              sessionId: String(session.id),
+              sessionId: String(session.thread_id || session.sessionId),
               title: session.title || 'New Chat',
               createdAt: session.created_at || session.createdAt,
               lastMessage: session.last_message || ''

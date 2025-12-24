@@ -12,9 +12,7 @@
       <div class="job-title-section">
         <h3 class="job-title">{{ job.job_title || 'Job Title' }}</h3>
         <p class="company-name">{{ job.company || 'Company Name' }}</p>
-        <div class="employment-badge" v-if="job.employment_type">
-          {{ job.employment_type }}
-        </div>
+
       </div>
     </div>
     
@@ -23,6 +21,11 @@
         <div class="detail-item" v-if="job.location">
           <i class="fas fa-map-marker-alt"></i>
           <span>{{ job.location }}</span>
+        </div>
+        
+        <div class="detail-item" v-if="job.employment_type">
+          <i class="fas fa-clock"></i>
+          <span>{{ job.employment_type }}</span>
         </div>
         
         <div class="detail-item" v-if="job.salary_min && job.salary_max && job.salary_min !== 1 && job.salary_max !== 1">

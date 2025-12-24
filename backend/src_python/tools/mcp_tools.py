@@ -56,6 +56,37 @@ def get_api_token(context: Optional[Dict] = None) -> Optional[str]:
     return token
 
 
+def extract_thread_id_from_context(input_text: str = None) -> Optional[str]:
+    """
+    Extract thread ID from input context or API request.
+    
+    Args:
+        input_text: Input text that may contain thread ID
+        
+    Returns:
+        Thread ID string or None if not found
+    """
+    # Try to get from environment (set by external API/frontend)
+    thread_id = os.getenv('CURRENT_THREAD_ID')
+    if thread_id:
+        return thread_id
+    
+    # Try to extract from input text pattern
+    if input_text:
+        import re
+        match = re.search(r'\[Thread ID:\s*([^\]]+)\]', input_text)
+        if match:
+            return match.group(1).strip()
+    
+    # Try to get from request headers or context (would be set by API handler)
+    thread_id = os.getenv('REQUEST_THREAD_ID')
+    if thread_id:
+        return thread_id
+    
+    return None
+
+
+
 def extract_user_id_from_input(input_text: str) -> Optional[int]:
     """
     Extract user ID from input text that contains "[User ID: XXX]" format.
@@ -77,20 +108,214 @@ def extract_user_id_from_input(input_text: str) -> Optional[int]:
     return None
 
 
+def suggest_job_categories(user_input: str) -> str:
+    """
+    Suggest relevant job categories based on user input.
+    
+    Args:
+        user_input: User's search input
+        
+    Returns:
+        Suggested categories or search terms
+    """
+    user_input_lower = user_input.lower()
+    
+    # Category suggestions based on keywords
+    suggestions = {
+        'pet sitters': ['pet', 'animal', 'dog', 'cat', 'sitter'],
+        'customer service representative': ['customer', 'service', 'support', 'call', 'help'],
+        'data entry clerk': ['data', 'entry', 'typing', 'clerk', 'office'],
+        'construction worker': ['construction', 'build', 'worker', 'laborer'],
+        'driver': ['drive', 'delivery', 'transport', 'logistics', 'shipping'],
+        'security guard': ['security', 'guard', 'protection', 'safety'],
+        'salesperson': ['sell', 'sales', 'business', 'revenue', 'client'],
+        'waiter / waitress': ['waiter', 'waitress', 'restaurant', 'food', 'service'],
+        'warehouse worker': ['warehouse', 'storage', 'inventory', 'packing'],
+        'farmer': ['farm', 'agriculture', 'crop', 'livestock', 'rural'],
+        'housekeeper': ['cleaner','house', 'cleaning', 'domestic', 'clean', 'laundry'],
+        'hairdresser': ['hair', 'salon', 'beauty', 'stylist'],
+        'babysitter': ['baby', 'child', 'kids', 'nanny', 'childcare'],
+        'machine operator': ['machine', 'operator', 'equipment', 'manufacturing'],
+        'accountant': ['accounting', 'financial', 'bookkeeper', 'finance', 'money'],
+        'doctor': ['doctor', 'medical', 'health', 'hospital', 'clinic'],
+        'lawyer': ['lawyer', 'legal', 'law', 'attorney', 'advocate'],
+        'architect': ['architect', 'design', 'building', 'construction'],
+        'teacher': ['teach', 'school', 'training', 'learning', 'academic'],
+        'project manager': ['project', 'manager', 'management', 'coordinator'],
+        'human resources officer': ['hr', 'human resources', 'personnel', 'recruitment'],
+        'marketing specialist': ['market', 'brand', 'social media', 'advertising', 'promotion'],
+        'software developer': ['computer', 'software', 'tech', 'programming', 'coding', 'web', 'app'],
+        'chef': ['chef', 'cook', 'kitchen', 'culinary', 'food'],
+        'receptionist': ['reception', 'front desk', 'office', 'assistant'],
+        'cleaners': ['cleaner', 'janitor', 'maintenance', 'housekeeping'],
+        'manpower': ['labor', 'workforce', 'general', 'temporary']
+    }
+    
+    matches = []
+    for category, keywords in suggestions.items():
+        if any(keyword in user_input_lower for keyword in keywords):
+            matches.append(category)
+    
+    if matches:
+        return f"Based on your search, you might be interested in: {', '.join(matches[:3])}"
+    else:
+        return "Try searching for categories like: pet sitters, customer service, data entry, construction, driver, security guard, salesperson, accountant, doctor, teacher"
+
+
+
+def validate_search_query(query: str, category: str = None) -> tuple[bool, str]:
+    """
+    Validate search query to prevent nonsensical job searches.
+    
+    Args:
+        query: Search query string
+        category: Category string
+        
+    Returns:
+        Tuple of (is_valid, message)
+    """
+    if not query and not category:
+        return True, ""  # Allow empty searches to show all jobs
+    
+    combined_text = f"{query} {category or ''}".strip().lower()
+    
+    # Skip validation if no meaningful text
+    if not combined_text:
+        return True, ""
+    
+    import re
+    
+    # Define nonsensical patterns - MORE STRICT
+    nonsensical_patterns = [
+        r'^[^a-zA-Z0-9\s]+$',  # Only special characters
+        r'^\s*$',  # Only whitespace
+        r'^.{1,2}$',  # Too short (1-2 characters)
+        r'(.)\1{3,}',  # Repeated characters (aaaa)
+        r'^\d+$',  # Only numbers
+        r'^[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]{6,}$',  # Too many consonants (gibberish)
+    ]
+    
+    # Check for nonsensical patterns
+    for pattern in nonsensical_patterns:
+        if re.search(pattern, combined_text):
+            return False, "❌ Please provide a meaningful job search term (e.g., 'marketing', 'sales', 'IT jobs')."
+    
+    # Enhanced gibberish detection
+    if len(combined_text) > 5:
+        vowels = 'aeiou'
+        consonants = 'bcdfghjklmnpqrstvwxyz'
+        
+        # Check vowel ratio - gibberish usually has very few vowels
+        vowel_count = sum(1 for c in combined_text if c in vowels)
+        consonant_count = sum(1 for c in combined_text if c in consonants)
+        total_letters = vowel_count + consonant_count
+        
+        if total_letters > 0:
+            vowel_ratio = vowel_count / total_letters
+            # If less than 15% vowels, likely gibberish
+            if vowel_ratio < 0.15:
+                return False, "❌ Please provide a valid job search term. Try categories like 'sales', 'marketing', 'IT', or 'healthcare'."
+    
+    # Check for common gibberish patterns
+    gibberish_patterns = [
+        r'[qwrtypsdfghjklzxcvbnm]{8,}',  # Long sequences of consonants
+        r'[bcdfghjklmnpqrstvwxyz]{5,}[bcdfghjklmnpqrstvwxyz]{3,}',  # Multiple consonant clusters
+    ]
+    
+    for pattern in gibberish_patterns:
+        if re.search(pattern, combined_text, re.IGNORECASE):
+            return False, "❌ Please provide a meaningful job search term. Try specific job titles or categories."
+    
+    return True, ""
+
+
+def get_stored_jobs_data() -> Optional[List[Dict]]:
+    """
+    Get currently stored jobs data for frontend display.
+    
+    Returns:
+        List of job dictionaries or None if no jobs stored
+    """
+    global _current_jobs_data
+    return _current_jobs_data
+
+
+def clear_stored_jobs_data():
+    """
+    Clear stored jobs data.
+    """
+    global _current_jobs_data
+    _current_jobs_data = None
+    os.environ.pop('JOBS_DATA_AVAILABLE', None)
+
+
+def generate_detailed_job_text(jobs_data: List[Dict], search_context: str = "") -> str:
+    """
+    Generate clean job listing text matching the UI style.
+    
+    Args:
+        jobs_data: List of job dictionaries
+        search_context: Context about the search (category, location, etc.)
+        
+    Returns:
+        Formatted job listing text matching the UI design
+    """
+    if not jobs_data:
+        return "No jobs found matching your criteria."
+    
+    # Header matching the UI style
+    html = f"<div style='margin-bottom: 1rem;'><strong>Here are some{search_context} job opportunities available for you</strong></div>\n"
+    
+    for i, job in enumerate(jobs_data, 1):
+        # Job title with number (pink color like in image)
+        html += f"<div style='margin-bottom: 1rem;'>\n"
+        html += f"<div style='color: #EA60A6; font-weight: 600; margin-bottom: 0.5rem;'>{i}. {job.get('job_title', 'Job Title')}</div>\n"
+        
+        # Company with bullet point
+        html += f"<div style='margin-left: 1rem; margin-bottom: 0.25rem;'>\n"
+        html += f"<span style='color: #EA60A6; margin-right: 0.5rem;'>•</span>"
+        html += f"<strong>Company:</strong> {job.get('company', 'Company Name')}\n"
+        html += f"</div>\n"
+        
+        # Type with bullet point (instead of location)
+        if job.get('employment_type'):
+            html += f"<div style='margin-left: 1rem; margin-bottom: 0.25rem;'>\n"
+            html += f"<span style='color: #EA60A6; margin-right: 0.5rem;'>•</span>"
+            html += f"<strong>Type:</strong> {job['employment_type']}\n"
+            html += f"</div>\n"
+        
+        # Salary if available
+        if job.get('salary_min') and job.get('salary_max') and job['salary_min'] != 1 and job['salary_max'] != 1:
+            html += f"<div style='margin-left: 1rem; margin-bottom: 0.25rem;'>\n"
+            html += f"<span style='color: #EA60A6; margin-right: 0.5rem;'>•</span>"
+            if job['salary_min'] == job['salary_max']:
+                html += f"<strong>Salary:</strong> {job['salary_min']:,} RWF\n"
+            else:
+                html += f"<strong>Salary:</strong> {job['salary_min']:,} - {job['salary_max']:,} RWF\n"
+            html += f"</div>\n"
+        
+        html += f"</div>\n"  # Close job container
+    
+    return html
+
+
+# Global variable to store jobs data for frontend
+_current_jobs_data = None
+
 @tool
 def search_jobs(
     query: str = "",
     category: Optional[str] = None,
     location: Optional[str] = None,
     page: Optional[int] = 1,
-    per_page: Optional[int] = 50,
+    per_page: Optional[int] = 6,
     fetch_all: Optional[bool] = False,
     api_token: Optional[str] = None
 ) -> str:
     """
     **MANDATORY TOOL FOR JOB SEARCHES** - Use this tool whenever a user asks for jobs, mentions a job type, or wants to find employment.
     
-    Search for jobs on the Kozi platform with pagination support.
+    Search for jobs on the Kozi platform with intelligent filtering and validation.
     
     **WHEN TO USE THIS TOOL:**
     - User says "I need a job" or "find me a job" → Use this tool
@@ -103,7 +328,8 @@ def search_jobs(
     - Always set fetch_all=True to get all available jobs
     - If user says "any location", set location=None or omit it
     - If user mentions a category (sales, marketing, IT, etc.), set category parameter
-    - This tool returns formatted job listings with titles, companies, locations
+    - This tool validates categories and provides suggestions for invalid ones
+    - Enhanced filtering prevents showing irrelevant jobs
     
     Args:
         query: Search query/keywords (e.g., "marketing specialist")
@@ -118,8 +344,13 @@ def search_jobs(
         Formatted string with job search results including job titles, companies, locations, and descriptions
     """
     try:
-        print(f"🔍 search_jobs called with: category={category}, location={location}, fetch_all={fetch_all}")
+        print(f"🔍 search_jobs called with: query='{query}', category='{category}', location='{location}', fetch_all={fetch_all}")
         print(f"🌐 Using JOBS_API_URL: {JOBS_API_URL}")
+        
+        # Validate search query first
+        is_valid, validation_msg = validate_search_query(query, category)
+        if not is_valid:
+            return validation_msg
         
         if not JOBS_API_URL:
             error_msg = "Jobs API is not configured. Please set JOBS_API_URL environment variable."
@@ -241,39 +472,328 @@ def search_jobs(
             print(f"ℹ️  {no_jobs_msg}")
             return no_jobs_msg
         
-        # Format results
-        formatted = [f"Found {len(all_jobs)} job(s)"]
-        if fetch_all and current_page > 1:
-            formatted[0] += f" across {current_page} page(s)"
-        formatted[0] += ":\n\n"
-        
-        # Show all jobs (or top 50 if too many)
-        display_limit = min(len(all_jobs), 50) if len(all_jobs) > 50 else len(all_jobs)
-        
-        for i, job in enumerate(all_jobs[:display_limit], 1):
-            formatted.append(f"{i}. **{job.get('title', job.get('job_title', 'Untitled'))}**")
+        # Normalize job data for frontend display
+        normalized_jobs = []
+        for job in all_jobs:
+            # Debug: Print job data to see what fields are available
+           
             
-            if job.get('company') or job.get('company_name'):
-                formatted.append(f"   Company: {job.get('company') or job.get('company_name')}")
-            if job.get('location') or job.get('job_location'):
-                formatted.append(f"   Location: {job.get('location') or job.get('job_location')}")
-            if job.get('category') or job.get('category_name'):
-                formatted.append(f"   Category: {job.get('category') or job.get('category_name')}")
-            if job.get('salary') or job.get('salary_range'):
-                formatted.append(f"   Salary: {job.get('salary') or job.get('salary_range')}")
-            if job.get('description'):
-                desc = str(job.get('description', ''))[:100]
-                formatted.append(f"   Description: {desc}...")
-            if job.get('id') or job.get('job_id'):
-                formatted.append(f"   ID: {job.get('id') or job.get('job_id')}")
-            formatted.append("")
+            normalized_job = {
+                'job_id': job.get('job_id') or job.get('id'),
+                'job_title': job.get('job_title') or job.get('title') or 'Untitled',
+                'company': job.get('company') or job.get('company_name') or 'Company',
+                'location': None,  # API location field contains wrong data (employment type)
+                'description': job.get('job_description') or job.get('description'),
+                'employment_type': job.get('location') if job.get('location') in ['Full Time', 'Part Time', 'Contract', 'Temporary', 'Freelance'] else None,
+                'salary_min': job.get('salary_min') or job.get('min_salary'),
+                'salary_max': job.get('salary_max') or job.get('max_salary'),
+                'deadline': job.get('deadline') or job.get('application_deadline'),
+                'logo': job.get('logo') or job.get('company_logo'),
+                'category': job.get('category') or job.get('category_name'),
+                'created_at': job.get('created_at') or job.get('posted_date')
+            }
+            
+            
+            
+            normalized_jobs.append(normalized_job)
         
-        if len(all_jobs) > display_limit:
-            formatted.append(f"\n... and {len(all_jobs) - display_limit} more job(s). Use more specific filters to narrow results.")
+        # Enhanced filtering for both category and query-based searches
+        if (category or query) and normalized_jobs:
+            filtered_jobs = []
+            
+            # Define valid categories with include/exclude keywords
+            valid_categories = {
+                'pet sitters': {
+                    'include': ['pet', 'sitter', 'animal', 'dog', 'cat', 'pet care', 'pet sitting', 'animal care', 'dog walking', 'pet walker'],
+                    'exclude': ['teacher', 'teaching', 'education', 'instructor', 'tutor', 'lecturer', 'professor', 'academic', 'school', 'training']
+                },
+                'other': {
+                    'include': ['other', 'miscellaneous', 'general', 'various', 'temp', 'temporary', 'casual'],
+                    'exclude': []
+                },
+                'customer service representative': {
+                    'include': ['customer service', 'support', 'representative', 'call center', 'help desk', 'customer support', 'client service', 'service representative', 'call centre', 'customer care'],
+                    'exclude': []
+                },
+                'data entry clerk': {
+                    'include': ['data entry', 'clerk', 'typing', 'administrative', 'office', 'data clerk', 'admin', 'office clerk', 'administrative assistant', 'data processing'],
+                    'exclude': []
+                },
+                'construction worker': {
+                    'include': ['construction', 'building', 'worker', 'laborer', 'contractor', 'builder', 'mason', 'carpenter', 'plumber', 'electrician', 'welder', 'roofer'],
+                    'exclude': []
+                },
+                'driver': {
+                    'include': ['driver', 'transport', 'delivery', 'shipping', 'driving', 'chauffeur', 'truck driver', 'taxi driver', 'delivery driver', 'courier'],
+                    'exclude': ['warehouse', 'storage', 'inventory', 'packing', 'fulfillment', 'distribution', 'accountant', 'accounting', 'financial']
+                },
+                'security guard': {
+                    'include': ['security', 'guard', 'protection', 'safety', 'surveillance', 'security officer', 'watchman', 'security personnel', 'bodyguard'],
+                    'exclude': []
+                },
+                'salesperson': {
+                    'include': ['sales', 'selling', 'salesperson', 'business development', 'account manager', 'sales representative', 'sales agent', 'marketing sales', 'retail sales'],
+                    'exclude': []
+                },
+                'waiter / waitress': {
+                    'include': ['waiter', 'waitress', 'server', 'restaurant', 'food service', 'waitstaff', 'food server', 'dining', 'hospitality'],
+                    'exclude': []
+                },
+                'warehouse worker': {
+                    'include': ['warehouse', 'storage', 'inventory', 'packing', 'warehouse operator', 'stock', 'fulfillment', 'distribution'],
+                    'exclude': ['driver', 'transport', 'delivery driver', 'courier', 'shipping driver', 'taxi', 'chauffeur']
+                },
+                'farmer': {
+                    'include': ['farmer', 'agriculture', 'farming', 'crop', 'livestock', 'agricultural', 'farm worker', 'agricultural worker', 'cultivation'],
+                    'exclude': []
+                },
+                'housekeeper': {
+                    'include': ['housekeeper', 'cleaning', 'domestic', 'housekeeping', 'cleaner', 'domestic worker', 'maid', 'house cleaner'],
+                    'exclude': []
+                },
+                'hairdresser': {
+                    'include': ['hairdresser', 'hair', 'salon', 'stylist', 'beauty', 'barber', 'hair stylist', 'beautician', 'cosmetologist'],
+                    'exclude': []
+                },
+                'babysitter': {
+                    'include': ['babysitter', 'childcare', 'nanny', 'child', 'kids', 'child care', 'daycare', 'au pair', 'caregiver'],
+                    'exclude': []
+                },
+                'machine operator': {
+                    'include': ['machine operator', 'operator', 'machinery', 'equipment', 'manufacturing', 'production operator', 'factory worker'],
+                    'exclude': []
+                },
+                'accountant': {
+                    'include': ['accountant', 'accounting', 'financial', 'bookkeeper', 'finance', 'bookkeeping', 'financial analyst', 'accounts'],
+                    'exclude': ['driver', 'transport', 'delivery', 'shipping', 'logistics']
+                },
+                'doctor': {
+                    'include': ['doctor', 'physician', 'medical', 'healthcare', 'clinic', 'nurse', 'medical officer', 'health', 'medical practitioner'],
+                    'exclude': []
+                },
+                'lawyer': {
+                    'include': ['lawyer', 'attorney', 'legal', 'law', 'advocate', 'legal advisor', 'counsel', 'solicitor', 'barrister'],
+                    'exclude': []
+                },
+                'architect': {
+                    'include': ['architect', 'design', 'building design', 'construction design', 'architectural', 'designer'],
+                    'exclude': []
+                },
+                'education': {
+                    'include': ['teacher','teaching', 'education', 'training', 'instructor', 'academic', 'educator', 'tutor', 'lecturer', 'professor'],
+                    'exclude': []
+                },
+                'project manager': {
+                    'include': ['project manager', 'manager', 'management', 'coordinator', 'project coordinator', 'team leader', 'supervisor'],
+                    'exclude': []
+                },
+                'human resources officer': {
+                    'include': ['human resources', 'hr', 'personnel', 'recruitment', 'recruiter', 'hr officer', 'talent acquisition'],
+                    'exclude': []
+                },
+                'marketing specialist': {
+                    'include': ['marketing', 'digital marketing', 'social media', 'advertising', 'promotion', 'brand', 'marketing specialist', 'marketing manager', 'seo', 'content marketing'],
+                    'exclude': []
+                },
+                'software developer': {
+                    'include': ['software developer', 'developer', 'programmer', 'software engineer', 'web developer', 'mobile developer', 'frontend developer', 'backend developer', 'fullstack developer', 'java developer', 'python developer', 'javascript developer', 'react developer', 'angular developer', 'node developer', 'php developer', 'c++ developer', 'c# developer', '.net developer', 'database developer', 'sql developer', 'devops engineer', 'system administrator', 'network administrator', 'cybersecurity specialist', 'data analyst', 'technical support engineer', 'it specialist', 'software architect', 'systems analyst', 'qa engineer', 'test engineer'],
+                    'exclude': ['project manager', 'manager', 'sales', 'marketing', 'customer service', 'receptionist', 'assistant', 'coordinator', 'supervisor', 'waiter', 'waitress', 'kitchen', 'cook', 'chef', 'food', 'restaurant', 'cleaning', 'cleaner', 'security', 'guard', 'driver', 'accountant', 'finance']
+                },
+                'chef': {
+                    'include': ['chef', 'cook', 'kitchen', 'culinary', 'food preparation', 'head chef', 'sous chef', 'line cook', 'baker'],
+                    'exclude': []
+                },
+                'receptionist': {
+                    'include': ['receptionist', 'front desk', 'reception', 'office assistant', 'front office', 'desk clerk'],
+                    'exclude': []
+                },
+                'cleaners': {
+                    'include': ['cleaners', 'cleaning', 'janitor', 'maintenance', 'housekeeping', 'cleaner', 'housekeeper', 'domestic worker', 'sanitation', 'custodial', 'janitorial', 'facility maintenance', 'office cleaning', 'house cleaning', 'commercial cleaning'],
+                    'exclude': []
+                },
+                'manpower': {
+                    'include': ['manpower', 'labor', 'workforce', 'general labor', 'temporary work', 'casual work', 'day labor', 'manual labor'],
+                    'exclude': []
+                }
+            }
+            
+            # Determine search keywords
+            search_keywords = []
+            
+            if category:
+                category_lower = category.lower().strip()
+                # Find matching category keywords
+                for valid_cat, category_config in valid_categories.items():
+                    include_keywords = category_config.get('include', category_config) if isinstance(category_config, dict) else category_config
+                    if category_lower == valid_cat or category_lower in include_keywords:
+                        search_keywords.extend(include_keywords)
+                        print(f"🔍 Category '{category}' matched to '{valid_cat}' with keywords: {include_keywords}")
+                        break
+                
+                if not search_keywords:
+                    print(f"❌ Category '{category}' not recognized")
+                    suggestions = []
+                    for valid_cat, category_config in valid_categories.items():
+                        include_keywords = category_config.get('include', category_config) if isinstance(category_config, dict) else category_config
+                        if any(keyword in category_lower or category_lower in keyword for keyword in include_keywords):
+                            suggestions.append(valid_cat)
+                    
+                    if suggestions:
+                            return f"❌ We couldn't find jobs for '{category}'. Did you mean: {', '.join(suggestions[:3])}? Please try searching with one of these categories."
+                    else:
+                        available_cats = ', '.join(list(valid_categories.keys())[:10])
+                        return f"❌ We couldn't find jobs for '{category}'. Available job categories include: {available_cats}, and more. Please try searching with a valid category."
+            
+            if query:
+                query_lower = query.lower().strip()
+                # Add query terms as search keywords
+                search_keywords.extend([query_lower])
+                
+                # Also check if query matches any category keywords
+                for valid_cat, category_config in valid_categories.items():
+                    include_keywords = category_config.get('include', category_config) if isinstance(category_config, dict) else category_config
+                    if any(keyword in query_lower or query_lower in keyword for keyword in include_keywords):
+                        search_keywords.extend(include_keywords)
+                        print(f"🔍 Query '{query}' matched category '{valid_cat}' keywords: {include_keywords}")
+                        break
+            
+            # Filter jobs using search keywords with exclusion logic
+            for job in normalized_jobs:
+                job_title = (job.get('job_title') or '').lower()
+                job_category = (job.get('category') or '').lower()
+                job_description = (job.get('description') or '').lower()[:200]
+                job_text = f"{job_title} {job_category} {job_description}"
+                
+                # Special strict filtering for software/IT searches
+                if (query and query.lower().strip() in ['software', 'it', 'tech', 'developer', 'programming']) or (category and 'software' in category.lower()):
+                    # For software searches, check for tech keywords in title or description
+                    tech_keywords = [
+                        'software', 'developer', 'programmer', 'engineer', 'it', 'tech', 'technical',
+                        'web', 'mobile', 'frontend', 'backend', 'fullstack', 'java', 'python',
+                        'javascript', 'react', 'angular', 'node', 'php', 'c++', 'c#', '.net',
+                        'database', 'sql', 'devops', 'system', 'network', 'cybersecurity',
+                        'data analyst', 'specialist', 'administrator', 'architect', 'analyst'
+                    ]
+                    
+                    # Exclude clearly non-tech roles
+                    non_tech_exclusions = [
+                        'waiter', 'waitress', 'server', 'kitchen', 'cook', 'chef', 'food', 'restaurant',
+                        'cleaning', 'cleaner', 'security guard', 'driver', 'sales representative',
+                        'customer service representative', 'receptionist'
+                    ]
+                    
+                    # Check if job has tech keywords
+                    has_tech = any(tech in job_text for tech in tech_keywords)
+                    # Check if job is clearly non-tech
+                    is_non_tech = any(exclusion in job_text for exclusion in non_tech_exclusions)
+                    
+                    if has_tech and not is_non_tech:
+                        filtered_jobs.append(job)
+                else:
+                    # Enhanced keyword matching with exclusion logic
+                    match_found = False
+                    excluded = False
+                    
+                    # Check for matches in search keywords
+                    for keyword in search_keywords:
+                        if keyword in job_text:
+                            match_found = True
+                            break
+                    
+                    # If match found, check exclusions for the matched category
+                    if match_found and category:
+                        category_lower = category.lower().strip()
+                        for valid_cat, category_config in valid_categories.items():
+                            if isinstance(category_config, dict) and 'exclude' in category_config:
+                                include_keywords = category_config.get('include', [])
+                                if (category_lower == valid_cat or 
+                                    any(keyword in category_lower or category_lower in keyword for keyword in include_keywords)):
+                                    # Check exclusions for this category
+                                    for exclude_word in category_config['exclude']:
+                                        if exclude_word.lower() in job_text:
+                                            excluded = True
+                                            break
+                                    break
+                    
+                    if match_found and not excluded:
+                        filtered_jobs.append(job)
+            
+            if filtered_jobs:
+                normalized_jobs = filtered_jobs
+                search_term = category or query
+                print(f"🔍 Filtered to {len(normalized_jobs)} jobs matching '{search_term}'")
+                
+                # Additional validation: check if filtered jobs are actually relevant
+                if category or query:
+                    relevant_jobs = []
+                    search_term_lower = (category or query).lower()
+                    
+                    for job in normalized_jobs:
+                        job_title = (job.get('job_title') or '').lower()
+                        job_category = (job.get('category') or '').lower()
+                        
+                        # For specific categories, be more strict about relevance
+                        if category and category.lower() in ['pet sitters', 'petsitting']:
+                            if (any(word in job_title for word in ['pet', 'animal', 'dog', 'cat', 'sitter']) and 
+                                not any(word in job_title for word in ['teacher', 'instructor', 'tutor', 'education'])):
+                                relevant_jobs.append(job)
+                        elif category and 'software' in category.lower():
+                            if any(word in job_title for word in ['developer', 'programmer', 'engineer', 'it', 'tech', 'software']):
+                                relevant_jobs.append(job)
+                        else:
+                            relevant_jobs.append(job)  # Keep other categories as is
+                    
+                    if relevant_jobs:
+                        normalized_jobs = relevant_jobs
+                    elif category:  # If category is valid but no relevant jobs found
+                        search_term = category or query
+                        print(f"❌ No relevant jobs found for '{search_term}' after strict filtering")
+                        # Suggest other categories
+                        popular_cats = ['customer service representative', 'data entry clerk', 'construction worker', 'driver', 'security guard', 'salesperson', 'waiter / waitress', 'warehouse worker']
+                        return f"❌ No {search_term} jobs available right now. Try searching for: {', '.join(popular_cats[:4])}, or other categories."
+            else:
+                search_term = category or query
+                print(f"❌ No jobs matched search term '{search_term}' with keywords: {search_keywords}")
+                return f"❌ No jobs found matching '{search_term}'. Try searching for jobs in other categories like: pet sitters, customer service representative, data entry clerk, construction worker, driver, security guard, salesperson, accountant, doctor, teacher."
         
-        result_text = "\n".join(formatted)
-        print(f"✅ search_jobs completed successfully, found {len(all_jobs)} jobs")
-        return result_text
+        # Limit to maximum 6 jobs for frontend display
+        max_jobs = 6
+        limited_jobs = normalized_jobs[:max_jobs]
+        
+        if len(limited_jobs) == 0:
+            # Clear any existing jobs data since no jobs found
+            global _current_jobs_data
+            _current_jobs_data = None
+            return "❌ No jobs found matching your criteria. Try adjusting your search terms or category."
+        
+        # Store jobs for frontend display as cards AND include in response
+        _current_jobs_data = limited_jobs
+        
+        print(f"📋 STORED {len(limited_jobs)} jobs for display as cards")
+        print(f"📋 First job stored: {limited_jobs[0].get('job_title', 'No title') if limited_jobs else 'None'}")
+        
+        # CRITICAL: Store jobs globally AND in environment for streaming response
+        os.environ['JOBS_DATA_AVAILABLE'] = 'true'
+        os.environ['CURRENT_JOBS_JSON'] = __import__('json').dumps(limited_jobs)
+        
+        # Generate context for detailed text
+        search_context = ""
+        if category:
+            search_context += f" in {category}"
+        if location:
+            search_context += f" in {location}"
+        
+        # Generate detailed job text for thread storage
+        detailed_text = generate_detailed_job_text(limited_jobs, search_context)
+        os.environ['THREAD_JOBS_TEXT'] = detailed_text
+        
+        # Return short descriptive text for immediate response
+        result_msg = f"I found {len(limited_jobs)} great job opportunities{search_context} that match your search criteria."
+        
+        print(f"🔍 SEARCH_JOBS TOOL RETURNING: '{result_msg}'")
+        print(f"📋 Jobs stored: {len(_current_jobs_data)} jobs for frontend cards")
+        print(f"📝 Detailed text stored for thread: {len(detailed_text)} characters")
+        return result_msg
         
     except requests.exceptions.RequestException as e:
         error_msg = f"API request failed: {str(e)}. Please check your internet connection and API configuration."
@@ -500,32 +1020,26 @@ def find_matching_jobs_for_user(
             except:
                 pass
         
-        # Search for jobs matching user profile
-        # Use fetch_all=True to get all jobs and find best matches
+        # Search for jobs matching user profile with enhanced filtering
         search_query = " ".join(skills[:3]) if skills else ""  # Use top 3 skills as query
         
-        result = search_jobs(
-            query=search_query,
-            category=category_preference,
-            location=location_preference,
-            fetch_all=True,
-            api_token=token
-        )
+        # Validate the search before proceeding
+        is_valid, validation_msg = validate_search_query(search_query, category_preference)
+        if not is_valid:
+            return f"Profile-based search validation failed: {validation_msg}"
         
-        # Add context about what was matched
-        formatted = [f"**Personalized Job Recommendations Based on Your Profile:**\n"]
-        formatted.append("=" * 60)
-        if category_preference:
-            formatted.append(f"Category: {category_preference}")
-        if location_preference:
-            formatted.append(f"Location: {location_preference}")
-        if skills:
-            formatted.append(f"Skills: {', '.join(skills[:5])}")
-        formatted.append("=" * 60)
-        formatted.append("")
-        formatted.append(result)
+        # Call search_jobs tool to get jobs and generate both texts
+        result = search_jobs.invoke({
+            "query": search_query,
+            "category": category_preference,
+            "location": location_preference,
+            "per_page": 6,
+            "fetch_all": False,
+            "api_token": token
+        })
         
-        return "\n".join(formatted)
+        # The search_jobs tool already handles the dual-text logic
+        return result
         
     except Exception as e:
         return f"Error finding matching jobs: {str(e)}"
@@ -679,3 +1193,110 @@ def get_user_profile(
     except Exception as e:
         return f"Error fetching user profile: {str(e)}"
 
+
+@tool
+def handle_unclear_job_request(
+    user_input: str,
+    api_token: Optional[str] = None
+) -> str:
+    """
+    Handle unclear, nonsensical, or invalid job search requests.
+    
+    Use this tool when:
+    - User provides gibberish or nonsensical input for job search
+    - User types random characters or very short meaningless text
+    - User asks for jobs but the request is unclear
+    - You need to guide user to provide better search terms
+    
+    Args:
+        user_input: The unclear or nonsensical user input
+        api_token: API authentication token (optional)
+        
+    Returns:
+        Helpful guidance and suggestions for better job search
+    """
+    try:
+        # Analyze the input and provide helpful suggestions
+        suggestions = suggest_job_categories(user_input)
+        
+        response = [
+            "❌ I couldn't understand your job search request.",
+            "",
+            "💡 **Here's how to search for jobs effectively:**",
+            "• Use specific job categories: 'sales jobs', 'marketing positions', 'IT roles'",
+            "• Mention your skills: 'graphic design', 'customer service', 'programming'",
+            "• Include location if needed: 'jobs in Kigali', 'remote work'",
+            "",
+            f"🎯 **Suggestions:** {suggestions}",
+            "",
+            "🔍 **Popular job categories:**",
+            "• Pet Sitters",
+            "• Customer Service Representative",
+            "• Data Entry Clerk",
+            "• Construction Worker",
+            "• Driver",
+            "• Security Guard",
+            "• Salesperson",
+            "• Waiter / Waitress",
+            "• Warehouse Worker",
+            "• Farmer",
+            "• Housekeeper",
+            "• Hairdresser",
+            "• Babysitter",
+            "• Machine Operator",
+            "• Accountant",
+            "• Doctor",
+            "• Lawyer",
+            "• Architect",
+            "• Teacher",
+            "• Project Manager",
+            "• Human Resources Officer",
+            "• Marketing Specialist",
+            "• Software Developer",
+            "• Chef",
+            "• Receptionist",
+            "• Cleaners",
+            "• Manpower",
+            "",
+            "Please try again with a clearer search term! 😊"
+        ]
+        
+        return "\n".join(response)
+        
+    except Exception as e:
+        return f"I couldn't process your request. Please try searching for jobs using clear terms like 'sales', 'marketing', or 'IT jobs'. Error: {str(e)}"
+
+
+
+# Global variables for external thread-based memory
+_current_jobs_data = None
+_thread_conversations = {}  # Store conversations by external thread ID
+
+def get_or_create_thread_id(provided_thread_id=None):
+    """Get existing thread ID or create new one."""
+    if provided_thread_id:
+        return provided_thread_id
+    import uuid
+    return str(uuid.uuid4())[:8]
+
+def store_conversation_data(thread_id, data_type, data):
+    """Store data for specific thread conversation."""
+    global _thread_conversations
+    if thread_id not in _thread_conversations:
+        _thread_conversations[thread_id] = {'created': __import__('time').time(), 'jobs': [], 'history': []}
+    _thread_conversations[thread_id][data_type] = data
+    _thread_conversations[thread_id]['updated'] = __import__('time').time()
+
+def get_conversation_data(thread_id, data_type):
+    """Get data for specific thread conversation."""
+    return _thread_conversations.get(thread_id, {}).get(data_type, [])
+
+def get_current_jobs_data():
+    """Get the current jobs data for frontend display."""
+    global _current_jobs_data
+    return _current_jobs_data
+
+def clear_current_jobs_data():
+    """Clear the current jobs data."""
+    global _current_jobs_data
+    _current_jobs_data = None

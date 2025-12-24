@@ -7,29 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model documents {
-  id        Int     @id @default(autoincrement())
-  title     String? @db.VarChar(255)
-  content   String? @db.Text
-  embedding String? @db.LongText
-  source    String? @db.VarChar(100) // "knowledge_base", "website", "pdf", etc.
-}
 model ChatSession {
-  id        Int           @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   users_id  Int
-  role_type String        @default("employee") // "employee" or "employer"
+  role_type String   @default("employee") // "employee" or "employer" or "admin"
   title     String?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  messages  ChatMessage[]
-}
-
-model ChatMessage {
-  id        Int         @id @default(autoincrement())
-  sessionId Int
-  session   ChatSession @relation(fields: [sessionId], references: [id])
-  role      String // "user", "assistant", "system"
-  content   String      @db.Text
-  createdAt DateTime    @default(now())
+  thread_id String   @unique // OpenAI thread ID (messages stored in OpenAI)
+  is_active Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 

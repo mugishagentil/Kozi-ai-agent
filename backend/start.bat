@@ -44,5 +44,5 @@ echo 📚 API Docs: http://localhost:%PORT%/docs
 echo.
 
 cd src_python
-python main.py
+uvicorn main:app --reload --host 0.0.0.0 --port 5050
 

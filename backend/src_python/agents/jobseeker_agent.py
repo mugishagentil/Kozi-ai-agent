@@ -136,7 +136,19 @@ class JobSeekerAgent(BaseAgent):
 - **USE search_jobs tool IMMEDIATELY** when user provides job requirements (type, location, skills)
 - **STOP asking questions once you have enough to search**
 
-**Important Guidelines:**
+**CRITICAL: JOB SEARCH RESULTS FORMATTING:**
+- When search_jobs tool returns results, **ONLY display the short descriptive text from the tool**
+- **DO NOT create your own job listings or numbered lists**
+- **DO NOT format job details like "1. Job Title, Company: X, Location: Y"**
+- **The search_jobs tool stores jobs for display as cards - you don't need to list them**
+- **Just return the short message from search_jobs tool (e.g., "Found 6 jobs in marketing.")**
+- **Let the frontend display the job cards - your job is just to return the short descriptive text**
+- **NEVER create detailed job listings in text format**
+
+**Job Search Response Format:**
+- ✅ CORRECT: "I found 6 great job opportunities in marketing that match your search criteria."
+- ❌ WRONG: "Here are the marketing jobs I found: 1. Sales Specialist at Company X, 2. Marketing Manager at Company Y..."
+- **The tool handles job storage for cards - you just return the descriptive message**
 1. **For simple greetings or casual chat**, respond directly WITHOUT any tools - be fast and friendly
 2. **When user wants jobs**: Get basic info (job type OR location), then IMMEDIATELY search
 3. **Use search_jobs tool with fetch_all=True** to search through ALL pages of jobs
@@ -146,7 +158,7 @@ class JobSeekerAgent(BaseAgent):
 7. **DO NOT fetch user profile for CV questions - use retrieve_knowledge_base to get CV writing guidance**
 8. **Only use get_user_profile if the user explicitly says "use my profile" or "use my information"**
 9. **The user ID is in the input message as "[User ID: XXX]" - extract this only if explicitly needed for get_user_profile**
-10. **After searching for jobs, present results clearly with job titles, companies, locations, and how to apply**
+10. **CRITICAL: After searching for jobs, ONLY return the short message from search_jobs tool - DO NOT create detailed job listings**
 11. **If search returns no results, THEN ask if they want to broaden the search criteria**
 12. Format responses using Markdown with proper spacing
 13. **Respond quickly and efficiently** - avoid unnecessary tool calls for simple questions
@@ -307,5 +319,8 @@ class JobSeekerAgent(BaseAgent):
         if is_job_query and ("issue" in result.lower() or "can't" in result.lower() or "unable" in result.lower() or "persistent issue" in result.lower()):
             print(f"⚠️  WARNING: Job query but response suggests tool wasn't called or failed")
             print(f"   Response: {result[:200]}...")
+        
+        # Log what the agent is actually returning to user
+        print(f"🔍 JOBSEEKER AGENT FINAL RESPONSE: '{result[:200]}...'")
         
         return result

@@ -229,13 +229,36 @@ def validate_search_query(query: str, category: str = None) -> tuple[bool, str]:
     return True, ""
 
 
+def get_stored_jobs_data() -> Optional[List[Dict]]:
+    """
+    Get currently stored jobs data for frontend display.
+    
+    Returns:
+        List of job dictionaries or None if no jobs stored
+    """
+    global _current_jobs_data
+    return _current_jobs_data
+
+
+def clear_stored_jobs_data():
+    """
+    Clear stored jobs data.
+    """
+    global _current_jobs_data
+    _current_jobs_data = None
+    os.environ.pop('JOBS_DATA_AVAILABLE', None)
+
+
+# Global variable to store jobs data for frontend
+_current_jobs_data = None
+
 @tool
 def search_jobs(
     query: str = "",
     category: Optional[str] = None,
     location: Optional[str] = None,
     page: Optional[int] = 1,
-    per_page: Optional[int] = 50,
+    per_page: Optional[int] = 6,
     fetch_all: Optional[bool] = False,
     api_token: Optional[str] = None
 ) -> str:
@@ -533,51 +556,35 @@ def search_jobs(
                 print(f"❌ No jobs matched search term '{search_term}' with keywords: {search_keywords}")
                 return f"❌ No jobs found matching '{search_term}'. Try searching for jobs in other categories like: pet sitters, customer service representative, data entry clerk, construction worker, driver, security guard, salesperson, accountant, doctor, teacher."
         
-        # Enhanced result formatting with better filtering
-        display_limit = min(len(normalized_jobs), 10)  # Limit to 10 for better UX
+        # Limit to maximum 6 jobs for frontend display
+        max_jobs = 6
+        limited_jobs = normalized_jobs[:max_jobs]
         
-        if len(normalized_jobs) == 0:
+        if len(limited_jobs) == 0:
             # Clear any existing jobs data since no jobs found
             global _current_jobs_data
             _current_jobs_data = None
             return "❌ No jobs found matching your criteria. Try adjusting your search terms or category."
         
-        # Store jobs for frontend display - only the ones shown in text
-        jobs_shown_in_text = normalized_jobs[:display_limit]  # Only jobs shown in text
+        # Store jobs for frontend display as cards
+        _current_jobs_data = limited_jobs
         
-        # Store globally for cards and backward compatibility
-        _current_jobs_data = jobs_shown_in_text
-        
-        print(f"📋 STORED {len(jobs_shown_in_text)} jobs for display and cards (matching text)")
-        print(f"📋 First job stored: {jobs_shown_in_text[0].get('job_title', 'No title') if jobs_shown_in_text else 'None'}")
+        print(f"📋 STORED {len(limited_jobs)} jobs for display as cards")
+        print(f"📋 First job stored: {limited_jobs[0].get('job_title', 'No title') if limited_jobs else 'None'}")
         
         # CRITICAL: Also store in agent instance for immediate access
         os.environ['JOBS_DATA_AVAILABLE'] = 'true'
         
-        result_msg = f"✅ Found {len(normalized_jobs)} relevant job(s)"
+        # Return descriptive text only
+        result_msg = f"I found {len(limited_jobs)} great job opportunities"
         if category:
             result_msg += f" in {category}"
         if location:
             result_msg += f" in {location}"
-        result_msg += ". Here are the top matches:\n\n"
+        result_msg += " that match your search criteria."
         
-        # Add job details with enhanced formatting
-        for i, job in enumerate(normalized_jobs[:display_limit], 1):
-            result_msg += f"{i}. **{job.get('job_title', 'Untitled')}**\n"
-            result_msg += f"   🏢 Company: {job.get('company', 'Company')}\n"
-            result_msg += f"   📍 Location: {job.get('location', 'Location not specified')}\n"
-            if job.get('employment_type'):
-                result_msg += f"   💼 Type: {job.get('employment_type')}\n"
-            if job.get('description'):
-                desc = job.get('description', '')[:80] + '...' if len(job.get('description', '')) > 80 else job.get('description', '')
-                result_msg += f"   📝 {desc}\n"
-            result_msg += "\n"
-        
-        if len(normalized_jobs) > display_limit:
-            result_msg += f"... and {len(normalized_jobs) - display_limit} more jobs available.\n"
-        
-        print(f"✅ search_jobs completed successfully, found {len(normalized_jobs)} jobs, displaying {display_limit} jobs")
-        print(f"📋 Jobs stored: {len(_current_jobs_data)} jobs (matching text display)")
+        print(f"🔍 SEARCH_JOBS TOOL RETURNING: '{result_msg}'")
+        print(f"📋 Jobs stored: {len(_current_jobs_data)} jobs for frontend cards")
         return result_msg
         
     except requests.exceptions.RequestException as e:
@@ -813,28 +820,24 @@ def find_matching_jobs_for_user(
         if not is_valid:
             return f"Profile-based search validation failed: {validation_msg}"
         
+        # Also update find_matching_jobs_for_user to use the same 6-job limit
         result = search_jobs.invoke({
             "query": search_query,
             "category": category_preference,
             "location": location_preference,
-            "fetch_all": True,
+            "per_page": 6,
+            "fetch_all": False,
             "api_token": token
         })
         
-        # Add context about what was matched
-        formatted = [f"**Personalized Job Recommendations Based on Your Profile:**\n"]
-        formatted.append("=" * 60)
+        # Add context about what was matched - descriptive but concise
+        result_msg = f"I found {len(limited_jobs)} personalized job opportunities"
         if category_preference:
-            formatted.append(f"Category: {category_preference}")
-        if location_preference:
-            formatted.append(f"Location: {location_preference}")
-        if skills:
-            formatted.append(f"Skills: {', '.join(skills[:5])}")
-        formatted.append("=" * 60)
-        formatted.append("")
-        formatted.append(result)
+            result_msg += f" in {category_preference}"
+        result_msg += " based on your profile and preferences."
         
-        return "\n".join(formatted)
+        print(f"🔍 FIND_MATCHING_JOBS TOOL RETURNING: '{result_msg}'")
+        return result_msg
         
     except Exception as e:
         return f"Error finding matching jobs: {str(e)}"

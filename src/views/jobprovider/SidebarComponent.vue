@@ -138,7 +138,7 @@ export default {
         return 'http://localhost:5050/api'
       }
       // Production - use Railway (where chat history is stored)
-      return 'https://kozi-ai-agent-production.up.railway.app/api'
+      return 'https://kozi-ai-agent-production-9215.up.railway.app/api'
     }
     const API_BASE = getApiBase()
 

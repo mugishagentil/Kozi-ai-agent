@@ -1198,8 +1198,8 @@ const getApiBase = () => {
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return 'http://localhost:5050/api'
   }
-  // Production - use Railway
-  return 'https://kozi-ai-agent-production.up.railway.app/api'
+  // Production - use Railway (with correct URL)
+  return 'https://kozi-ai-agent-production-9215.up.railway.app/api'
 }
 const API_BASE = getApiBase().replace(/\/+$/, '')
 

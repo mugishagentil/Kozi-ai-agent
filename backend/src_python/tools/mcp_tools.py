@@ -122,16 +122,33 @@ def suggest_job_categories(user_input: str) -> str:
     
     # Category suggestions based on keywords
     suggestions = {
-        'sales': ['sell', 'customer', 'client', 'business', 'revenue'],
-        'marketing': ['market', 'brand', 'social media', 'advertising', 'promotion'],
-        'it': ['computer', 'software', 'tech', 'programming', 'coding', 'web', 'app'],
-        'finance': ['money', 'bank', 'accounting', 'financial', 'investment'],
-        'healthcare': ['health', 'medical', 'hospital', 'clinic', 'care'],
-        'education': ['teach', 'school', 'training', 'learning', 'academic'],
-        'construction': ['build', 'construction', 'engineer', 'architect'],
-        'hospitality': ['hotel', 'restaurant', 'tourism', 'service', 'food'],
-        'transport': ['drive', 'delivery', 'logistics', 'transport', 'shipping'],
-        'agriculture': ['farm', 'crop', 'agriculture', 'livestock', 'rural']
+        'pet sitters': ['pet', 'animal', 'dog', 'cat', 'sitter'],
+        'customer service representative': ['customer', 'service', 'support', 'call', 'help'],
+        'data entry clerk': ['data', 'entry', 'typing', 'clerk', 'office'],
+        'construction worker': ['construction', 'build', 'worker', 'laborer'],
+        'driver': ['drive', 'delivery', 'transport', 'logistics', 'shipping'],
+        'security guard': ['security', 'guard', 'protection', 'safety'],
+        'salesperson': ['sell', 'sales', 'business', 'revenue', 'client'],
+        'waiter / waitress': ['waiter', 'waitress', 'restaurant', 'food', 'service'],
+        'warehouse worker': ['warehouse', 'storage', 'inventory', 'packing'],
+        'farmer': ['farm', 'agriculture', 'crop', 'livestock', 'rural'],
+        'housekeeper': ['house', 'cleaning', 'domestic', 'clean'],
+        'hairdresser': ['hair', 'salon', 'beauty', 'stylist'],
+        'babysitter': ['baby', 'child', 'kids', 'nanny', 'childcare'],
+        'machine operator': ['machine', 'operator', 'equipment', 'manufacturing'],
+        'accountant': ['accounting', 'financial', 'bookkeeper', 'finance', 'money'],
+        'doctor': ['doctor', 'medical', 'health', 'hospital', 'clinic'],
+        'lawyer': ['lawyer', 'legal', 'law', 'attorney', 'advocate'],
+        'architect': ['architect', 'design', 'building', 'construction'],
+        'teacher': ['teach', 'school', 'training', 'learning', 'academic'],
+        'project manager': ['project', 'manager', 'management', 'coordinator'],
+        'human resources officer': ['hr', 'human resources', 'personnel', 'recruitment'],
+        'marketing specialist': ['market', 'brand', 'social media', 'advertising', 'promotion'],
+        'software developer': ['computer', 'software', 'tech', 'programming', 'coding', 'web', 'app'],
+        'chef': ['chef', 'cook', 'kitchen', 'culinary', 'food'],
+        'receptionist': ['reception', 'front desk', 'office', 'assistant'],
+        'cleaners': ['clean', 'janitor', 'maintenance', 'housekeeping'],
+        'manpower': ['labor', 'workforce', 'general', 'temporary']
     }
     
     matches = []
@@ -142,7 +159,7 @@ def suggest_job_categories(user_input: str) -> str:
     if matches:
         return f"Based on your search, you might be interested in: {', '.join(matches[:3])}"
     else:
-        return "Try searching for categories like: sales, marketing, IT, finance, healthcare, education"
+        return "Try searching for categories like: pet sitters, customer service, data entry, construction, driver, security guard, salesperson, accountant, doctor, teacher"
 
 
 
@@ -408,16 +425,34 @@ def search_jobs(
             
             # Define valid categories and their keywords
             valid_categories = {
-                'sales': ['sales', 'selling', 'marketing', 'business development', 'account manager'],
-                'marketing': ['marketing', 'digital marketing', 'social media', 'advertising', 'promotion', 'brand'],
-                'it': ['developer', 'programmer', 'software', 'tech', 'system', 'data', 'web', 'computer', 'coding', 'engineering'],
-                'finance': ['finance', 'accounting', 'financial', 'bank', 'investment', 'audit'],
-                'healthcare': ['health', 'medical', 'nurse', 'doctor', 'hospital', 'clinic'],
-                'education': ['teacher', 'education', 'training', 'instructor', 'academic'],
-                'construction': ['construction', 'building', 'engineer', 'architect', 'contractor'],
-                'hospitality': ['hotel', 'restaurant', 'tourism', 'hospitality', 'service'],
-                'transport': ['driver', 'transport', 'logistics', 'delivery', 'shipping', 'driving'],
-                'agriculture': ['agriculture', 'farming', 'crop', 'livestock', 'agricultural']
+                'pet sitters': ['pet', 'sitter', 'animal', 'dog', 'cat', 'pet care'],
+                'other': ['other', 'miscellaneous', 'general', 'various'],
+                'customer service representative': ['customer service', 'support', 'representative', 'call center', 'help desk'],
+                'data entry clerk': ['data entry', 'clerk', 'typing', 'administrative', 'office'],
+                'construction worker': ['construction', 'building', 'worker', 'laborer', 'contractor'],
+                'driver': ['driver', 'transport', 'logistics', 'delivery', 'shipping', 'driving'],
+                'security guard': ['security', 'guard', 'protection', 'safety', 'surveillance'],
+                'salesperson': ['sales', 'selling', 'salesperson', 'business development', 'account manager'],
+                'waiter / waitress': ['waiter', 'waitress', 'server', 'restaurant', 'food service'],
+                'warehouse worker': ['warehouse', 'storage', 'inventory', 'logistics', 'packing'],
+                'farmer': ['farmer', 'agriculture', 'farming', 'crop', 'livestock', 'agricultural'],
+                'housekeeper': ['housekeeper', 'cleaning', 'domestic', 'housekeeping', 'cleaner'],
+                'hairdresser': ['hairdresser', 'hair', 'salon', 'stylist', 'beauty'],
+                'babysitter': ['babysitter', 'childcare', 'nanny', 'child', 'kids'],
+                'machine operator': ['machine operator', 'operator', 'machinery', 'equipment', 'manufacturing'],
+                'accountant': ['accountant', 'accounting', 'financial', 'bookkeeper', 'finance'],
+                'doctor': ['doctor', 'physician', 'medical', 'healthcare', 'clinic'],
+                'lawyer': ['lawyer', 'attorney', 'legal', 'law', 'advocate'],
+                'architect': ['architect', 'design', 'building design', 'construction design'],
+                'teacher': ['teacher', 'education', 'training', 'instructor', 'academic'],
+                'project manager': ['project manager', 'manager', 'management', 'coordinator'],
+                'human resources officer': ['human resources', 'hr', 'personnel', 'recruitment'],
+                'marketing specialist': ['marketing', 'digital marketing', 'social media', 'advertising', 'promotion', 'brand'],
+                'software developer': ['software developer', 'developer', 'programmer', 'software', 'tech', 'coding'],
+                'chef': ['chef', 'cook', 'kitchen', 'culinary', 'food preparation'],
+                'receptionist': ['receptionist', 'front desk', 'reception', 'office assistant'],
+                'cleaners': ['cleaners', 'cleaning', 'janitor', 'maintenance', 'housekeeping'],
+                'manpower': ['manpower', 'labor', 'workforce', 'general labor', 'temporary work']
             }
             
             # Check if category is valid
@@ -440,8 +475,8 @@ def search_jobs(
                 if suggestions:
                     return f"❌ We couldn't find jobs for '{category}'. Did you mean: {', '.join(suggestions[:3])}? Please try searching with one of these categories."
                 else:
-                    available_cats = ', '.join(valid_categories.keys())
-                    return f"❌ We couldn't find jobs for '{category}'. Available job categories include: {available_cats}. Please try searching with a valid category."
+                    available_cats = ', '.join(list(valid_categories.keys())[:10])  # Show first 10 categories
+                    return f"❌ We couldn't find jobs for '{category}'. Available job categories include: {available_cats}, and more. Please try searching with a valid category."
             
             # Filter jobs using enhanced matching
             for job in normalized_jobs:
@@ -466,7 +501,7 @@ def search_jobs(
                 print(f"🔍 Filtered to {len(normalized_jobs)} jobs matching category '{category}'")
             else:
                 print(f"❌ No jobs matched category '{category}' keywords: {category_keywords}")
-                return f"❌ No jobs found in '{category}' category. Try searching for jobs in other categories like: {', '.join(list(valid_categories.keys())[:5])}."
+                return f"❌ No jobs found in '{category}' category. Try searching for jobs in other categories like: pet sitters, customer service representative, data entry clerk, construction worker, driver, security guard, salesperson, accountant, doctor, teacher."
         
         # Enhanced result formatting with better filtering
         display_limit = min(len(normalized_jobs), 10)  # Limit to 10 for better UX
@@ -960,12 +995,33 @@ def handle_unclear_job_request(
             f"🎯 **Suggestions:** {suggestions}",
             "",
             "🔍 **Popular job categories:**",
-            "• Sales & Marketing",
-            "• Information Technology (IT)",
-            "• Healthcare & Medical",
-            "• Finance & Accounting",
-            "• Education & Training",
-            "• Construction & Engineering",
+            "• Pet Sitters",
+            "• Customer Service Representative",
+            "• Data Entry Clerk",
+            "• Construction Worker",
+            "• Driver",
+            "• Security Guard",
+            "• Salesperson",
+            "• Waiter / Waitress",
+            "• Warehouse Worker",
+            "• Farmer",
+            "• Housekeeper",
+            "• Hairdresser",
+            "• Babysitter",
+            "• Machine Operator",
+            "• Accountant",
+            "• Doctor",
+            "• Lawyer",
+            "• Architect",
+            "• Teacher",
+            "• Project Manager",
+            "• Human Resources Officer",
+            "• Marketing Specialist",
+            "• Software Developer",
+            "• Chef",
+            "• Receptionist",
+            "• Cleaners",
+            "• Manpower",
             "",
             "Please try again with a clearer search term! 😊"
         ]

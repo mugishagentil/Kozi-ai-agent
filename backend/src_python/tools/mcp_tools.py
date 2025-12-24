@@ -132,7 +132,7 @@ def suggest_job_categories(user_input: str) -> str:
         'waiter / waitress': ['waiter', 'waitress', 'restaurant', 'food', 'service'],
         'warehouse worker': ['warehouse', 'storage', 'inventory', 'packing'],
         'farmer': ['farm', 'agriculture', 'crop', 'livestock', 'rural'],
-        'housekeeper': ['house', 'cleaning', 'domestic', 'clean'],
+        'housekeeper': ['cleaner','house', 'cleaning', 'domestic', 'clean', 'laundry'],
         'hairdresser': ['hair', 'salon', 'beauty', 'stylist'],
         'babysitter': ['baby', 'child', 'kids', 'nanny', 'childcare'],
         'machine operator': ['machine', 'operator', 'equipment', 'manufacturing'],
@@ -147,7 +147,7 @@ def suggest_job_categories(user_input: str) -> str:
         'software developer': ['computer', 'software', 'tech', 'programming', 'coding', 'web', 'app'],
         'chef': ['chef', 'cook', 'kitchen', 'culinary', 'food'],
         'receptionist': ['reception', 'front desk', 'office', 'assistant'],
-        'cleaners': ['clean', 'janitor', 'maintenance', 'housekeeping'],
+        'cleaners': ['cleaner', 'janitor', 'maintenance', 'housekeeping'],
         'manpower': ['labor', 'workforce', 'general', 'temporary']
     }
     
@@ -418,90 +418,120 @@ def search_jobs(
             }
             normalized_jobs.append(normalized_job)
         
-        # Enhanced category filtering with validation
-        if category and normalized_jobs:
-            category_lower = category.lower().strip()
+        # Enhanced filtering for both category and query-based searches
+        if (category or query) and normalized_jobs:
             filtered_jobs = []
             
             # Define valid categories and their keywords
             valid_categories = {
-                'pet sitters': ['pet', 'sitter', 'animal', 'dog', 'cat', 'pet care'],
-                'other': ['other', 'miscellaneous', 'general', 'various'],
-                'customer service representative': ['customer service', 'support', 'representative', 'call center', 'help desk'],
-                'data entry clerk': ['data entry', 'clerk', 'typing', 'administrative', 'office'],
-                'construction worker': ['construction', 'building', 'worker', 'laborer', 'contractor'],
-                'driver': ['driver', 'transport', 'logistics', 'delivery', 'shipping', 'driving'],
-                'security guard': ['security', 'guard', 'protection', 'safety', 'surveillance'],
-                'salesperson': ['sales', 'selling', 'salesperson', 'business development', 'account manager'],
-                'waiter / waitress': ['waiter', 'waitress', 'server', 'restaurant', 'food service'],
-                'warehouse worker': ['warehouse', 'storage', 'inventory', 'logistics', 'packing'],
-                'farmer': ['farmer', 'agriculture', 'farming', 'crop', 'livestock', 'agricultural'],
-                'housekeeper': ['housekeeper', 'cleaning', 'domestic', 'housekeeping', 'cleaner'],
-                'hairdresser': ['hairdresser', 'hair', 'salon', 'stylist', 'beauty'],
-                'babysitter': ['babysitter', 'childcare', 'nanny', 'child', 'kids'],
-                'machine operator': ['machine operator', 'operator', 'machinery', 'equipment', 'manufacturing'],
-                'accountant': ['accountant', 'accounting', 'financial', 'bookkeeper', 'finance'],
-                'doctor': ['doctor', 'physician', 'medical', 'healthcare', 'clinic'],
-                'lawyer': ['lawyer', 'attorney', 'legal', 'law', 'advocate'],
-                'architect': ['architect', 'design', 'building design', 'construction design'],
-                'teacher': ['teacher', 'education', 'training', 'instructor', 'academic'],
-                'project manager': ['project manager', 'manager', 'management', 'coordinator'],
-                'human resources officer': ['human resources', 'hr', 'personnel', 'recruitment'],
-                'marketing specialist': ['marketing', 'digital marketing', 'social media', 'advertising', 'promotion', 'brand'],
-                'software developer': ['software developer', 'developer', 'programmer', 'software', 'tech', 'coding'],
-                'chef': ['chef', 'cook', 'kitchen', 'culinary', 'food preparation'],
-                'receptionist': ['receptionist', 'front desk', 'reception', 'office assistant'],
-                'cleaners': ['cleaners', 'cleaning', 'janitor', 'maintenance', 'housekeeping'],
-                'manpower': ['manpower', 'labor', 'workforce', 'general labor', 'temporary work']
+                'pet sitters': ['pet', 'sitter', 'animal', 'dog', 'cat', 'pet care', 'pet sitting', 'animal care', 'dog walking', 'pet walker'],
+                'other': ['other', 'miscellaneous', 'general', 'various', 'temp', 'temporary', 'casual'],
+                'customer service representative': ['customer service', 'support', 'representative', 'call center', 'help desk', 'customer support', 'client service', 'service representative', 'call centre', 'customer care'],
+                'data entry clerk': ['data entry', 'clerk', 'typing', 'administrative', 'office', 'data clerk', 'admin', 'office clerk', 'administrative assistant', 'data processing'],
+                'construction worker': ['construction', 'building', 'worker', 'laborer', 'contractor', 'builder', 'mason', 'carpenter', 'plumber', 'electrician', 'welder', 'roofer'],
+                'driver': ['driver', 'transport', 'logistics', 'delivery', 'shipping', 'driving', 'chauffeur', 'truck driver', 'taxi driver', 'delivery driver', 'courier'],
+                'security guard': ['security', 'guard', 'protection', 'safety', 'surveillance', 'security officer', 'watchman', 'security personnel', 'bodyguard'],
+                'salesperson': ['sales', 'selling', 'salesperson', 'business development', 'account manager', 'sales representative', 'sales agent', 'marketing sales', 'retail sales'],
+                'waiter / waitress': ['waiter', 'waitress', 'server', 'restaurant', 'food service', 'waitstaff', 'food server', 'dining', 'hospitality'],
+                'warehouse worker': ['warehouse', 'storage', 'inventory', 'logistics', 'packing', 'warehouse operator', 'stock', 'fulfillment', 'distribution'],
+                'farmer': ['farmer', 'agriculture', 'farming', 'crop', 'livestock', 'agricultural', 'farm worker', 'agricultural worker', 'cultivation'],
+                'housekeeper': ['housekeeper', 'cleaning', 'domestic', 'housekeeping', 'cleaner', 'domestic worker', 'maid', 'house cleaner'],
+                'hairdresser': ['hairdresser', 'hair', 'salon', 'stylist', 'beauty', 'barber', 'hair stylist', 'beautician', 'cosmetologist'],
+                'babysitter': ['babysitter', 'childcare', 'nanny', 'child', 'kids', 'child care', 'daycare', 'au pair', 'caregiver'],
+                'machine operator': ['machine operator', 'operator', 'machinery', 'equipment', 'manufacturing', 'production operator', 'factory worker'],
+                'accountant': ['accountant', 'accounting', 'financial', 'bookkeeper', 'finance', 'bookkeeping', 'financial analyst', 'accounts'],
+                'doctor': ['doctor', 'physician', 'medical', 'healthcare', 'clinic', 'nurse', 'medical officer', 'health', 'medical practitioner'],
+                'lawyer': ['lawyer', 'attorney', 'legal', 'law', 'advocate', 'legal advisor', 'counsel', 'solicitor', 'barrister'],
+                'architect': ['architect', 'design', 'building design', 'construction design', 'architectural', 'designer'],
+                'teacher': ['teacher', 'education', 'training', 'instructor', 'academic', 'educator', 'tutor', 'lecturer', 'professor'],
+                'project manager': ['project manager', 'manager', 'management', 'coordinator', 'project coordinator', 'team leader', 'supervisor'],
+                'human resources officer': ['human resources', 'hr', 'personnel', 'recruitment', 'recruiter', 'hr officer', 'talent acquisition'],
+                'marketing specialist': ['marketing', 'digital marketing', 'social media', 'advertising', 'promotion', 'brand', 'marketing specialist', 'marketing manager', 'seo', 'content marketing'],
+                'software developer': ['software developer', 'developer', 'programmer', 'software', 'tech', 'coding', 'it', 'information technology', 'computer', 'web developer', 'mobile developer', 'frontend', 'backend', 'fullstack', 'java', 'python', 'javascript', 'react', 'angular', 'node', 'php', 'c++', 'c#', '.net', 'database', 'sql', 'devops', 'system administrator', 'network', 'cybersecurity', 'data analyst', 'software engineer', 'technical support', 'help desk'],
+                'chef': ['chef', 'cook', 'kitchen', 'culinary', 'food preparation', 'head chef', 'sous chef', 'line cook', 'baker'],
+                'receptionist': ['receptionist', 'front desk', 'reception', 'office assistant', 'front office', 'desk clerk'],
+                'cleaners': ['cleaners', 'cleaning', 'janitor', 'maintenance', 'housekeeping', 'cleaner', 'housekeeper', 'domestic worker', 'sanitation', 'custodial', 'janitorial', 'facility maintenance', 'office cleaning', 'house cleaning', 'commercial cleaning'],
+                'manpower': ['manpower', 'labor', 'workforce', 'general labor', 'temporary work', 'casual work', 'day labor', 'manual labor']
             }
             
-            # Check if category is valid
-            category_keywords = None
-            for valid_cat, keywords in valid_categories.items():
-                if category_lower == valid_cat or category_lower in keywords:
-                    category_keywords = keywords
-                    print(f"🔍 Category '{category}' matched to '{valid_cat}' with keywords: {keywords}")
-                    break
+            # Determine search keywords
+            search_keywords = []
             
-            # If category is not recognized, suggest alternatives
-            if not category_keywords:
-                print(f"❌ Category '{category}' not recognized in valid categories")
-                # Check for partial matches
-                suggestions = []
+            if category:
+                category_lower = category.lower().strip()
+                # Find matching category keywords
                 for valid_cat, keywords in valid_categories.items():
-                    if any(keyword in category_lower or category_lower in keyword for keyword in keywords):
-                        suggestions.append(valid_cat)
+                    if category_lower == valid_cat or category_lower in keywords:
+                        search_keywords.extend(keywords)
+                        print(f"🔍 Category '{category}' matched to '{valid_cat}' with keywords: {keywords}")
+                        break
                 
-                if suggestions:
-                    return f"❌ We couldn't find jobs for '{category}'. Did you mean: {', '.join(suggestions[:3])}? Please try searching with one of these categories."
-                else:
-                    available_cats = ', '.join(list(valid_categories.keys())[:10])  # Show first 10 categories
-                    return f"❌ We couldn't find jobs for '{category}'. Available job categories include: {available_cats}, and more. Please try searching with a valid category."
+                if not search_keywords:
+                    print(f"❌ Category '{category}' not recognized")
+                    suggestions = []
+                    for valid_cat, keywords in valid_categories.items():
+                        if any(keyword in category_lower or category_lower in keyword for keyword in keywords):
+                            suggestions.append(valid_cat)
+                    
+                    if suggestions:
+                        return f"❌ We couldn't find jobs for '{category}'. Did you mean: {', '.join(suggestions[:3])}? Please try searching with one of these categories."
+                    else:
+                        available_cats = ', '.join(list(valid_categories.keys())[:10])
+                        return f"❌ We couldn't find jobs for '{category}'. Available job categories include: {available_cats}, and more. Please try searching with a valid category."
             
-            # Filter jobs using enhanced matching
+            if query:
+                query_lower = query.lower().strip()
+                # Add query terms as search keywords
+                search_keywords.extend([query_lower])
+                
+                # Also check if query matches any category keywords
+                for valid_cat, keywords in valid_categories.items():
+                    if any(keyword in query_lower or query_lower in keyword for keyword in keywords):
+                        search_keywords.extend(keywords)
+                        print(f"🔍 Query '{query}' matched category '{valid_cat}' keywords: {keywords}")
+                        break
+            
+            # Filter jobs using search keywords
             for job in normalized_jobs:
                 job_title = (job.get('job_title') or '').lower()
                 job_category = (job.get('category') or '').lower()
-                job_description = (job.get('description') or '').lower()[:200]  # Limit description length
+                job_description = (job.get('description') or '').lower()[:200]
                 
-                # Check if job matches any category keywords
-                match_found = False
-                for keyword in category_keywords:
-                    if (keyword in job_title or 
-                        keyword in job_category or 
-                        keyword in job_description):
-                        match_found = True
-                        break
-                
-                if match_found:
-                    filtered_jobs.append(job)
+                # Special strict filtering for IT/Tech searches
+                if query and query.lower().strip() in ['it', 'tech', 'software', 'developer', 'programming']:
+                    # For IT searches, require strong tech indicators
+                    tech_indicators = ['software', 'developer', 'programmer', 'tech', 'it', 'computer', 'web', 'mobile', 'frontend', 'backend', 'fullstack', 'java', 'python', 'javascript', 'react', 'angular', 'node', 'php', 'c++', 'c#', '.net', 'database', 'sql', 'devops', 'system', 'network', 'cybersecurity', 'data analyst', 'engineer', 'technical']
+                    
+                    # Exclude non-tech terms that might cause false matches
+                    non_tech_terms = ['waiter', 'waitress', 'kitchen', 'cook', 'chef', 'food', 'restaurant', 'cleaning', 'cleaner', 'security', 'guard', 'driver', 'sales', 'marketing', 'customer service', 'receptionist', 'assistant']
+                    
+                    # Check if job has tech indicators and no non-tech terms
+                    has_tech = any(tech in job_title or tech in job_category or tech in job_description for tech in tech_indicators)
+                    has_non_tech = any(non_tech in job_title or non_tech in job_category for non_tech in non_tech_terms)
+                    
+                    if has_tech and not has_non_tech:
+                        filtered_jobs.append(job)
+                else:
+                    # Regular keyword matching for other searches
+                    match_found = False
+                    for keyword in search_keywords:
+                        if (keyword in job_title or 
+                            keyword in job_category or 
+                            keyword in job_description):
+                            match_found = True
+                            break
+                    
+                    if match_found:
+                        filtered_jobs.append(job)
             
             if filtered_jobs:
                 normalized_jobs = filtered_jobs
-                print(f"🔍 Filtered to {len(normalized_jobs)} jobs matching category '{category}'")
+                search_term = category or query
+                print(f"🔍 Filtered to {len(normalized_jobs)} jobs matching '{search_term}'")
             else:
-                print(f"❌ No jobs matched category '{category}' keywords: {category_keywords}")
-                return f"❌ No jobs found in '{category}' category. Try searching for jobs in other categories like: pet sitters, customer service representative, data entry clerk, construction worker, driver, security guard, salesperson, accountant, doctor, teacher."
+                search_term = category or query
+                print(f"❌ No jobs matched search term '{search_term}' with keywords: {search_keywords}")
+                return f"❌ No jobs found matching '{search_term}'. Try searching for jobs in other categories like: pet sitters, customer service representative, data entry clerk, construction worker, driver, security guard, salesperson, accountant, doctor, teacher."
         
         # Enhanced result formatting with better filtering
         display_limit = min(len(normalized_jobs), 10)  # Limit to 10 for better UX

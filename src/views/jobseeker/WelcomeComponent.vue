@@ -68,9 +68,44 @@
           <hr class="section-divider">
 
           <div class="benefits-content">
-            <!-- Image Section -->
-            <div class="benefits-image">
-              <img :src="require('@/assets/img/payment-post.jpg')" alt="Registration" class="responsive-image" />
+            <!-- Image Section with Payment Button -->
+            <div class="image-column">
+              <div class="image-wrapper">
+                <img :src="require('@/assets/img/payment-post.jpg')" alt="Registration" class="responsive-image" />
+                
+                <!-- Status Badge Overlay -->
+                <div class="status-badge" :class="paymentStatusTone">
+                  <div class="status-icon-wrapper">
+                    <i :class="paymentStatusIconClass"></i>
+                  </div>
+                  <div class="status-text-wrapper">
+                    <div class="status-label">{{ paymentStatusLabel }}</div>
+                    <div class="status-message">{{ paymentStatusNoteText }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Payment Button -->
+              <div class="payment-action">
+                <div v-if="paymentStatus === 'approved'" class="approved-banner">
+                  <i class="fa-solid fa-circle-check"></i>
+                  <span>Access Granted ✓</span>
+                </div>
+                <button
+                  v-else
+                  type="button"
+                  class="pay-button"
+                  @click="showPayment = true"
+                  :disabled="paymentStatus === 'pending' || checkingPayment || paying"
+                >
+                  <i v-if="checkingPayment || paymentStatus === 'pending' || paying" class="fa-solid fa-spinner fa-spin"></i>
+                  <i v-else class="fa-solid fa-wallet"></i>
+                  <span v-if="checkingPayment">Checking Status...</span>
+                  <span v-else-if="paymentStatus === 'pending'">Processing Payment...</span>
+                  <span v-else-if="paying">Processing...</span>
+                  <span v-else>Unlock Premium Access</span>
+                </button>
+              </div>
             </div>
 
             <!-- Instructions Section -->
@@ -85,31 +120,76 @@
               </div>
 
               <div class="steps-container">
-                <div class="step-item">
-                  <span class="step-number">1</span>
-                  <span class="step-text">Dial the MoMo Pay code *182*8*1*067788#</span>
-                </div>
-                <div class="step-item">
-                  <span class="step-number">2</span>
-                  <span class="step-text">Enter the amount: 1,500 RWF</span>
-                </div>
-                <div class="step-item">
-                  <span class="step-number">3</span>
-                  <span class="step-text">Confirm the name: SANSON GROUP Ltd</span>
-                </div>
-                <div class="step-item">
-                  <span class="step-number">4</span>
-                  <span class="step-text">Enter your MoMo PIN</span>
-                </div>
-                <div class="step-item">
-                  <span class="step-number">5</span>
-                  <span class="step-text">Wait up to 5 minutes for approval</span>
+                <div class="step-item" v-for="(step, index) in steps" :key="index">
+                  <div class="step-icon">{{ step.icon }}</div>
+                  <div class="step-content">
+                    <div class="step-number">STEP {{ index + 1 }}</div>
+                    <div class="step-text">{{ step.text }}</div>
+                  </div>
                 </div>
               </div>
 
               <div class="footer-note">
-                Track your progress and take the next step in your career journey with us!
+                🚀 Track your progress and accelerate your career journey with us!
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Payment Modal -->
+        <div v-if="showPayment" class="modal-overlay" @click="closePayment">
+          <div class="modal-card" @click.stop>
+            <div class="modal-header">
+              <h4>Complete Payment</h4>
+              <button class="close-btn" @click="closePayment">×</button>
+            </div>
+            <div class="modal-body">
+              <div class="modal-row">
+                <label>
+                  <i class="fa-solid fa-envelope"></i>
+                  Email
+                </label>
+                <input type="text" :value="userEmail" readonly />
+              </div>
+              <div class="modal-row">
+                <label>
+                  <i class="fa-solid fa-user"></i>
+                  Name
+                </label>
+                <input type="text" :value="`${firstName} ${lastName}`.trim()" readonly />
+              </div>
+              <div class="modal-row">
+                <label>
+                  <i class="fa-solid fa-dollar-sign"></i>
+                  Amount (RWF)
+                </label>
+                <input type="number" :value="amount" readonly />
+              </div>
+              <div class="modal-row">
+                <label>
+                  <i class="fa-solid fa-phone"></i>
+                  MoMo Number
+                </label>
+                <input
+                  type="tel"
+                  v-model="msisdn"
+                  placeholder="07XXXXXXXX"
+                  class="editable-input"
+                />
+              </div>
+              <p class="helper-text">💡 Charges included. Payment method: MoMo.</p>
+              <div v-if="payFeedback" :class="['pay-alert', payFeedbackColor === 'green' ? 'success' : 'error']">
+                {{ payFeedback }}
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="secondary" @click="closePayment" :disabled="paying">Cancel</button>
+              <button class="primary" @click="initiatePayment" :disabled="paying || !amount || !msisdn">
+                <i v-if="paying" class="fa-solid fa-spinner fa-spin"></i>
+                <i v-else class="fa-solid fa-circle-check"></i>
+                <span v-if="!paying">Pay now</span>
+                <span v-else>Processing…</span>
+              </button>
             </div>
           </div>
         </div>
@@ -135,11 +215,81 @@ export default {
       teamCount: 0,
       userEmail: "",
       userId: "",
+      firstName: "",
+      lastName: "",
+      job_seeker_id: "",
+      showPayment: false,
+      amount: 1500,
+      msisdn: "",
+      paying: false,
+      payFeedback: "",
+      payFeedbackColor: "green",
+      paymentStatus: "unknown",
+      paymentStatusNote: "",
+      checkingPayment: false,
+      steps: [
+        { icon: "💰", text: 'Click "Unlock Premium Access" button' },
+        { icon: "📱", text: "Enter your MoMo number (07XXXXXXXX)" },
+        { icon: "🔐", text: "Confirm payment with your MoMo PIN" },
+        { icon: "⚡", text: "Instant access within 60 seconds" },
+      ],
     };
+  },
+  computed: {
+    paymentStatusLabel() {
+      switch (this.paymentStatus) {
+        case "approved":
+          return "Payment approved";
+        case "pending":
+          return "Payment pending";
+        case "failed":
+          return "Payment failed";
+        default:
+          return "Payment required";
+      }
+    },
+    paymentStatusIconClass() {
+      switch (this.paymentStatus) {
+        case "approved":
+          return "fa-solid fa-circle-check";
+        case "pending":
+          return "fa-solid fa-clock";
+        case "failed":
+          return "fa-solid fa-circle-exclamation";
+        default:
+          return "fa-solid fa-wallet";
+      }
+    },
+    paymentStatusTone() {
+      switch (this.paymentStatus) {
+        case "approved":
+          return "status-approved";
+        case "pending":
+          return "status-pending";
+        case "failed":
+          return "status-failed";
+        default:
+          return "status-default";
+      }
+    },
+    paymentStatusNoteText() {
+      if (this.paymentStatusNote) return this.paymentStatusNote;
+      switch (this.paymentStatus) {
+        case "approved":
+          return "Access already granted.";
+        case "pending":
+          return "We are waiting for confirmation.";
+        case "failed":
+          return "Previous attempt failed; you can try again.";
+        default:
+          return "Make a one-time payment to unlock premium access.";
+      }
+    },
   },
   mounted() {
     this.fetchDashboardCounts();
     this.checkProfileStatus();
+    this.getUserIdFromEmail();
   },
   methods: {
     async fetchDashboardCounts() {
@@ -157,8 +307,237 @@ export default {
       }
     },
 
+    async getUserIdFromEmail() {
+      const token = localStorage.getItem("employeeToken") || localStorage.getItem("authToken");
+      if (!token) return;
+
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        this.userEmail = payload.email;
+
+        const res = await fetch(`${globalVariable}/get_user_id_by_email/${this.userEmail}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.userId = data.users_id;
+          await Promise.all([this.fetchProfile(), this.fetchPaymentStatus()]);
+        }
+      } catch (err) {
+        console.error("Error getting userId:", err);
+      }
+    },
+    async fetchProfile() {
+      try {
+        const token = localStorage.getItem("employeeToken") || localStorage.getItem("authToken");
+        const res = await fetch(`${globalVariable}/seeker/view_profile/${this.userId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.firstName = data.first_name || "";
+          this.lastName = data.last_name || "";
+          this.job_seeker_id = data.job_seeker_id || "";
+        }
+      } catch (err) {
+        console.error("Error fetching profile:", err);
+      }
+    },
+    async fetchPaymentStatus() {
+      if (!this.userId) return;
+      this.checkingPayment = true;
+      try {
+        const token = localStorage.getItem("employeeToken") || localStorage.getItem("authToken");
+        const res = await fetch(`${globalVariable}/jobseeker/payment/status/${this.userId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (res.ok) {
+          let rawStatus = "";
+          if (Array.isArray(data) && data.length > 0) {
+            rawStatus = data[0].payment || data[0].status || "";
+          } else if (data && typeof data === "object") {
+            rawStatus = data.payment || data.status || "";
+          }
+
+          const normalized = (rawStatus || "").toString().toLowerCase();
+          if (normalized === "approved") {
+            this.paymentStatus = "approved";
+            this.paymentStatusNote = data.message || "Access already granted.";
+          } else if (normalized === "pending") {
+            this.paymentStatus = "pending";
+            this.paymentStatusNote = data.message || "We are waiting for confirmation.";
+          } else if (normalized === "") {
+            this.paymentStatus = "unknown";
+            this.paymentStatusNote = data.message || "Payment required to unlock access.";
+          } else if (normalized === "failed") {
+            this.paymentStatus = "failed";
+            this.paymentStatusNote = data.message || "Previous attempt failed; you can try again.";
+          } else {
+            this.paymentStatus = "unknown";
+            this.paymentStatusNote = data.message || "Payment required to unlock access.";
+          }
+        } else {
+          this.paymentStatus = "unknown";
+          this.paymentStatusNote = data.message || "Could not check payment status.";
+        }
+      } catch (err) {
+        console.error("Error fetching payment status:", err);
+        this.paymentStatus = "unknown";
+        this.paymentStatusNote = "Could not check payment status.";
+      } finally {
+        this.checkingPayment = false;
+      }
+    },
+    closePayment() {
+      this.showPayment = false;
+      this.payFeedback = "";
+      this.payFeedbackColor = "green";
+      this.amount = 1500;
+      this.msisdn = "";
+    },
+    async initiatePayment() {
+      if (this.paymentStatus === "approved") {
+        this.payFeedback = "Payment already approved.";
+        this.payFeedbackColor = "green";
+        return;
+      }
+      if (this.paymentStatus === "pending") {
+        this.payFeedback = "Payment is already pending confirmation.";
+        this.payFeedbackColor = "green";
+        return;
+      }
+
+      if (!this.userEmail || !this.firstName || !this.lastName || !this.amount || !this.msisdn) {
+        this.payFeedback = "Missing required fields.";
+        this.payFeedbackColor = "red";
+        return;
+      }
+
+      this.paying = true;
+      this.payFeedback = "Initiating payment...";
+      this.paymentStatus = "pending";
+      this.paymentStatusNote = "Awaiting confirmation.";
+
+      const payload = {
+        email: this.userEmail,
+        cname: `${this.firstName} ${this.lastName}`.trim(),
+        amount: this.amount,
+        cnumber: "0789524429",
+        msisdn: this.msisdn,
+        currency: "RWF",
+        pmethod: "momo",
+        chargesIncluded: "true",
+      };
+
+      try {
+        const res = await fetch("https://xentripay.com/api/collections/initiate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-XENTRIPAY-KEY": "3a2a72448d744d69b596b92523739386",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success === 1 && data.refid) {
+          this.payFeedback = data.reply || "Payment initiated. Complete on your phone.";
+          this.payFeedbackColor = "green";
+          await this.pollPaymentStatus(data.refid);
+        } else {
+          this.payFeedback = data.reply || data.message || "Payment initiation failed.";
+          this.payFeedbackColor = "red";
+          this.paying = false;
+        }
+      } catch (err) {
+        console.error("Payment initiation error:", err);
+        this.payFeedback = "Network or server error during payment.";
+        this.payFeedbackColor = "red";
+        this.paying = false;
+      }
+    },
+    async pollPaymentStatus(refid) {
+      const maxAttempts = 12;
+      let attempts = 0;
+
+      this.payFeedback = "Checking payment status...";
+
+      const checkStatus = async () => {
+        try {
+          const res = await fetch(`https://xentripay.com/api/collections/status/${refid}`, {
+            headers: {
+              "X-XENTRIPAY-KEY": "3a2a72448d744d69b596b92523739386",
+            },
+          });
+
+          const data = await res.json();
+          
+          if (data.status === "SUCCESS") {
+            this.payFeedback = "Payment successful! ✓";
+            this.payFeedbackColor = "green";
+            this.paymentStatus = "approved";
+            this.paymentStatusNote = "Access already granted.";
+            await this.updatePaymentStatus();
+            this.paying = false;
+            return true;
+          } else if (data.status === "FAILED") {
+            this.payFeedback = "Payment failed. Please try again.";
+            this.payFeedbackColor = "red";
+            this.paymentStatus = "failed";
+            this.paymentStatusNote = "Last attempt failed.";
+            this.paying = false;
+            return true;
+          } else if (data.status === "PENDING") {
+            attempts++;
+            if (attempts >= maxAttempts) {
+              this.payFeedback = "Payment status check timed out. Please verify manually.";
+              this.payFeedbackColor = "red";
+              this.paymentStatusNote = "Please confirm if payment went through.";
+              this.paying = false;
+              return true;
+            }
+            this.payFeedback = `Waiting for payment confirmation... (${attempts}/${maxAttempts})`;
+            setTimeout(() => checkStatus(), 5000);
+            return false;
+          }
+        } catch (err) {
+          console.error("Status check error:", err);
+          this.payFeedback = "Error checking payment status.";
+          this.payFeedbackColor = "red";
+          this.paying = false;
+          return true;
+        }
+      };
+
+      await checkStatus();
+    },
+    async updatePaymentStatus() {
+      try {
+        const token = localStorage.getItem("employeeToken") || localStorage.getItem("authToken");
+        const res = await fetch(`${globalVariable}/admin/approve_job_seeker/${this.job_seeker_id}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          console.log("Payment approved successfully");
+          this.payFeedback = data.message || "Payment approved! You will receive a confirmation email.";
+          this.paymentStatus = "approved";
+          this.paymentStatusNote = data.message || "Access already granted.";
+        } else {
+          console.error("Failed to approve payment:", data.message);
+        }
+      } catch (err) {
+        console.error("Error updating payment status:", err);
+      }
+    },
     async checkProfileStatus() {
-      const token = localStorage.getItem("employeeToken");
+      const token = localStorage.getItem("authToken");
       if (!token) return;
 
       try {
@@ -312,13 +691,186 @@ export default {
   width: 100%;
 }
 
+/* Image Column Container */
+.image-column {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Image Wrapper */
+.image-wrapper {
+  position: relative;
+  width: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+}
+
 .responsive-image {
   width: 100%;
-  height: auto;
-  max-height: 700px;
+  height: 600px;
   object-fit: cover;
+  display: block;
+}
+
+/* Status Badge Overlay */
+.status-badge {
+  position: absolute;
+  top: 2rem;
+  left: 2rem;
+  right: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
   border-radius: 15px;
-  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.95);
+  border: 2px solid;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  animation: slideDown 0.5s ease;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.status-approved {
+  border-color: #28a745;
+  background: rgba(40, 167, 69, 0.95);
+}
+
+.status-approved .status-label,
+.status-approved .status-message {
+  color: white;
+}
+
+.status-approved .status-icon-wrapper {
+  color: white;
+}
+
+.status-pending {
+  border-color: #ffc107;
+  background: rgba(255, 193, 7, 0.1);
+}
+
+.status-failed {
+  border-color: #dc3545;
+  background: rgba(220, 53, 69, 0.1);
+}
+
+.status-default {
+  border-color: #EA60A7;
+  background: rgba(234, 96, 167, 0.1);
+}
+
+.status-icon-wrapper {
+  font-size: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-approved .status-icon-wrapper {
+  color: white;
+}
+
+.status-pending .status-icon-wrapper {
+  color: #ffc107;
+}
+
+.status-failed .status-icon-wrapper {
+  color: #dc3545;
+}
+
+.status-default .status-icon-wrapper {
+  color: #EA60A7;
+}
+
+.status-text-wrapper {
+  flex: 1;
+}
+
+.status-label {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+  color: #333;
+}
+
+.status-message {
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: 500;
+}
+
+/* Payment Action Area */
+.payment-action {
+  width: 100%;
+}
+
+.pay-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.25rem 2rem;
+  background: linear-gradient(135deg, #EA60A7 0%, #FF6B9D 100%);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 25px rgba(234, 96, 167, 0.4);
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pay-button:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 35px rgba(234, 96, 167, 0.5);
+}
+
+.pay-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pay-button i {
+  font-size: 1.3rem;
+}
+
+.approved-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.25rem 2rem;
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  color: #fff;
+  border-radius: 14px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  box-shadow: 0 8px 25px rgba(40, 167, 69, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.approved-banner i {
+  font-size: 1.3rem;
 }
 
 .benefits-instructions {
@@ -359,56 +911,327 @@ export default {
 }
 
 .steps-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
   margin: 2rem 0;
 }
 
 .step-item {
   display: flex;
-  align-items: center;
-  margin-bottom: 1.5rem;
-  padding: 1rem;
+  align-items: flex-start;
+  gap: 1.25rem;
   background: white;
-  border-radius: 10px;
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
-  transition: transform 0.2s ease;
+  padding: 1.5rem 1.25rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
 }
 
 .step-item:hover {
-  transform: translateX(5px);
+  transform: translateX(8px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
 }
 
-.step-number {
+.step-icon {
+  font-size: 2.25rem;
+  flex-shrink: 0;
+  line-height: 1;
+  width: 3rem;
+  text-align: center;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  background: linear-gradient(135deg, #5F9EA0, #4facfe);
-  color: white;
-  border-radius: 50%;
-  font-weight: 600;
-  margin-right: 1rem;
-  flex-shrink: 0;
+}
+
+.step-content {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.step-number {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #5F9EA0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 0.25rem;
+  line-height: 1.2;
 }
 
 .step-text {
-  font-weight: 500;
+  font-size: 0.95rem;
   color: #333;
-  flex: 1;
+  font-weight: 500;
+  line-height: 1.5;
+  margin: 0;
+  word-break: break-word;
 }
 
 .footer-note {
   text-align: center;
-  font-style: italic;
-  color: #666;
-  margin-top: 2rem;
-  padding: 1rem;
+  padding: 1.25rem;
   background: rgba(95, 158, 160, 0.1);
+  border-radius: 12px;
+  color: #666;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+/* Modal Overlay */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Modal Card */
+.modal-card {
+  background: #fff;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 500px;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  animation: modalSlideUp 0.3s ease;
+}
+
+@keyframes modalSlideUp {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Modal Header */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem 2rem;
+  background: linear-gradient(135deg, #EA60A7 0%, #FF6B9D 100%);
+  color: white;
+}
+
+.modal-header h4 {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.close-btn {
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+  line-height: 1;
+  padding: 0;
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Modal Body */
+.modal-body {
+  padding: 2rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.modal-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.modal-row label {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.modal-row label i {
+  color: #EA60A7;
+  font-size: 16px;
+}
+
+.modal-row input {
+  padding: 0.9rem 1rem;
+  border: 2px solid #e1e4e8;
   border-radius: 10px;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+  background: #f8f9fa;
+  color: #666;
+  cursor: not-allowed;
+}
+
+.modal-row input.editable-input {
+  background: #fff;
+  color: #333;
+  cursor: text;
+}
+
+.modal-row input.editable-input:focus {
+  outline: none;
+  border-color: #EA60A7;
+  box-shadow: 0 0 0 3px rgba(234, 96, 167, 0.1);
+}
+
+.modal-row input::placeholder {
+  color: #999;
+}
+
+.helper-text {
+  margin: -0.5rem 0 1rem;
+  color: #666;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Payment Alert */
+.pay-alert {
+  padding: 1rem 1.25rem;
+  border-radius: 10px;
+  font-weight: 500;
+  margin-top: 1rem;
+  animation: alertSlide 0.3s ease;
+  font-size: 0.95rem;
+  border: 2px solid;
+}
+
+@keyframes alertSlide {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.pay-alert.success {
+  background: #d4edda;
+  color: #155724;
+  border-color: #c3e6cb;
+}
+
+.pay-alert.error {
+  background: #f8d7da;
+  color: #721c24;
+  border-color: #f5c6cb;
+}
+
+/* Modal Footer */
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1.5rem 2rem;
+  background: #f8f9fa;
+  border-top: 1px solid #e9ecef;
+}
+
+.modal-footer button {
+  padding: 0.9rem 2rem;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.modal-footer button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.modal-footer .secondary {
+  background: #e9ecef;
+  color: #495057;
+  border: 2px solid #dee2e6;
+}
+
+.modal-footer .secondary:hover:not(:disabled) {
+  background: #dee2e6;
+}
+
+.modal-footer .primary {
+  background: linear-gradient(135deg, #EA60A7 0%, #FF6B9D 100%);
+  color: #fff;
+  box-shadow: 0 4px 15px rgba(234, 96, 167, 0.3);
+}
+
+.modal-footer .primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(234, 96, 167, 0.4);
+}
+
+.modal-footer .primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.modal-footer button i {
+  font-size: 18px;
 }
 
 /* Mobile Responsiveness - Keep cards in single row */
 @media (max-width: 768px) {
+  /* Override body-wrapper styles on mobile */
+  .body-wrapper {
+    margin-left: 0 !important;
+    margin-top: 70px !important;
+    max-height: calc(100vh - 70px) !important;
+    overflow-y: auto !important;
+  }
+
   .stats-cards-container {
     grid-template-columns: repeat(3, 1fr);
     gap: 0.8rem;
@@ -434,6 +1257,26 @@ export default {
   .benefits-content {
     grid-template-columns: 1fr;
     gap: 2rem;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Hide image on mobile */
+  .image-wrapper {
+    display: none;
+  }
+
+  /* Reorder: Instructions first, then button */
+  .benefits-instructions {
+    order: 1;
+  }
+
+  .image-column {
+    order: 2;
+  }
+
+  .payment-action {
+    order: 1;
   }
   
   .section-title {
@@ -449,14 +1292,18 @@ export default {
   }
   
   .step-item {
-    flex-direction: column;
-    text-align: center;
+    flex-direction: row;
     padding: 1rem;
+    gap: 0.85rem;
+  }
+
+  .step-icon {
+    font-size: 1.8rem;
+    width: 2rem;
   }
   
-  .step-number {
-    margin-right: 0;
-    margin-bottom: 0.5rem;
+  .step-text {
+    font-size: 0.9rem;
   }
 }
 

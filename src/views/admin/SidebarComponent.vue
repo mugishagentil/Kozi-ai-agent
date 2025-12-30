@@ -293,7 +293,12 @@ export default {
   },
   computed: {
     apiBase() {
-      return process.env.VUE_APP_API_BASE || 'http://localhost:5050/api';
+      // Check if we're in development (localhost)
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:5050/api'
+      }
+      // Production - use Railway
+      return 'https://kozi-ai-agent-production-9215.up.railway.app/api'
     }
   },
   async mounted() {
